@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Recuperar contraseña · Administración</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/admin.css">
+    <script type="module" src="/admin/recovery.js"></script>
+  </head>
+  <body class="admin-page">
+    <a class="skip-link" href="#contenido">Saltar al contenido</a>
+    <header class="site-header">
+      <a class="wordmark" href="/">Carpintería</a>
+      <nav aria-label="Navegación principal"><a href="/">Ver catálogo</a></nav>
+    </header>
+    <main id="contenido" class="admin-main recovery-main">
+      <p class="eyebrow">Acceso privado</p>
+      <h1>Recuperar contraseña</h1>
+      <p class="recovery-description">Solicita un código por correo para establecer una contraseña nueva.</p>
+      <p id="recovery-status" class="admin-status" role="status" aria-live="polite"></p>
+      <form id="recovery-request-form" class="admin-form login-form">
+        <label class="field-label" for="recovery-email">Correo registrado</label>
+        <input id="recovery-email" name="email" type="email" autocomplete="email" maxlength="254" required>
+        <button class="button button-dark" type="submit">Enviar código</button>
+      </form>
+      <form id="recovery-code-form" class="admin-form login-form" hidden>
+        <label class="field-label" for="recovery-code">Código de seis dígitos</label>
+        <input id="recovery-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required>
+        <button class="button button-dark" type="submit">Validar código</button>
+      </form>
+      <form id="recovery-password-form" class="admin-form login-form" hidden>
+        <label class="field-label" for="recovery-password">Contraseña nueva</label>
+        <input id="recovery-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>
+        <label class="field-label" for="recovery-confirmation">Confirmar contraseña nueva</label>
+        <input id="recovery-confirmation" name="confirmation" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>
+        <button class="button button-dark" type="submit">Guardar contraseña</button>
+      </form>
+      <p class="recovery-back-link"><a href="/admin/login">Volver a iniciar sesión</a></p>
+    </main>
+    <footer class="site-footer"><p>Panel administrativo</p></footer>
+  </body>
+</html>

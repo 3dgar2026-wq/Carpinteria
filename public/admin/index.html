@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="csrf-token" content="@@ADMIN_CSRF_TOKEN@@">
+    <title>Administración · Carpintería</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/admin.css">
+    <script type="module" src="/admin/admin.js"></script>
+  </head>
+  <body class="admin-page">
+    <a class="skip-link" href="#contenido">Saltar al contenido</a>
+    <header class="site-header admin-header">
+      <a class="wordmark" href="/">Carpintería</a>
+      <nav aria-label="Navegación administrativa">
+        <a class="admin-nav-link" href="#products-section">Mis trabajos</a>
+        <a class="admin-nav-link" href="#photo-inbox">Fotografías pendientes</a>
+        <a class="admin-nav-link" href="#image-library">Biblioteca de imágenes</a>
+        <a class="admin-nav-link" href="#photo-upload-section">Carga masiva</a>
+        <a class="admin-nav-link" href="#category-management" data-admin-categories>Categorías</a>
+        <a class="admin-nav-link admin-nav-store" href="/">Ver mi tienda <span aria-hidden="true">↗</span></a>
+        <button id="logout-button" class="button button-text" type="button">Cerrar sesión</button>
+        <details class="admin-more">
+          <summary>Más opciones</summary>
+          <div class="admin-more-actions">
+            <button id="revoke-sessions-button" class="button button-danger" type="button">Cerrar todas las sesiones</button>
+          </div>
+        </details>
+      </nav>
+    </header>
+    <main id="contenido" class="admin-main">
+      <section class="admin-welcome" aria-labelledby="welcome-title" hidden>
+        <p class="eyebrow">Tu espacio de trabajo</p>
+        <h1 id="welcome-title">Hola, aquí puedes organizar tu catálogo.</h1>
+        <p class="admin-intro">Agrega tus trabajos, revisa cómo se ven y decide cuándo mostrarlos en tu tienda.</p>
+        <div class="admin-home-actions" aria-label="Acciones principales">
+          <a class="admin-action-card" href="#product-editor" data-start-wizard>
+            <span class="action-icon" aria-hidden="true">＋</span>
+            <span><strong>Agregar producto</strong><small>Completa la información paso a paso</small></span>
+            <span class="action-arrow" aria-hidden="true">→</span>
+          </a>
+          <a class="admin-action-card" href="#products-section" data-show-products>
+            <span class="action-icon" aria-hidden="true">▤</span>
+            <span><strong>Mis trabajos</strong><small>Consulta, edita y publica tus trabajos</small></span>
+            <span class="action-arrow" aria-hidden="true">→</span>
+          </a>
+        </div>
+      </section>
+
+      <p id="admin-status" class="admin-status" role="status" aria-live="polite"></p>
+
+      <div id="products-view" data-admin-view="products-section">
+      <section id="product-editor" class="admin-section wizard-section" aria-labelledby="product-form-title" hidden>
+        <div class="admin-section-heading">
+          <div><p class="eyebrow">Asistente de producto</p><h2 id="product-form-title" tabindex="-1">Agregar un producto</h2></div>
+          <button id="cancel-product-edit" class="button button-text" type="button">Cerrar asistente</button>
+        </div>
+        <form id="product-form" class="admin-form wizard-form" novalidate>
+          <input id="product-id" type="hidden">
+          <input id="product-slug" name="slug" type="hidden" required>
+          <ol class="wizard-progress" aria-label="Progreso del producto">
+            <li data-progress-step="1" aria-current="step"><span>1</span><small>Datos</small></li>
+            <li data-progress-step="2"><span>2</span><small>Categoría</small></li>
+            <li data-progress-step="3"><span>3</span><small>Fotografías</small></li>
+            <li data-progress-step="4"><span>4</span><small>Precio y medidas</small></li>
+            <li data-progress-step="5"><span>5</span><small>Revisar y guardar</small></li>
+          </ol>
+
+          <section class="wizard-step" data-wizard-step="1" aria-labelledby="wizard-step-one-title">
+            <p class="eyebrow">Paso 1 de 5</p>
+            <h3 id="wizard-step-one-title" tabindex="-1">Datos del mueble</h3>
+            <p class="wizard-help">Comienza con la información básica. El nombre es obligatorio; la descripción puede quedar vacía.</p>
+            <label class="field-label" for="product-name">Nombre del mueble <span aria-hidden="true">(obligatorio)</span></label>
+            <input id="product-name" name="name" type="text" maxlength="180" autocomplete="off" required>
+            <label class="field-label" for="product-description">Descripción <span class="optional-label">(opcional)</span></label>
+            <textarea id="product-description" name="description" rows="4" maxlength="5000" placeholder="Describe brevemente este mueble, si lo deseas."></textarea>
+          </section>
+
+          <section class="wizard-step" data-wizard-step="2" aria-labelledby="wizard-step-two-title" hidden>
+            <p class="eyebrow">Paso 2 de 5</p>
+            <h3 id="wizard-step-two-title" tabindex="-1">Elegir categoría</h3>
+            <p class="wizard-help">Selecciona dónde aparecerá este mueble en el catálogo. Necesitas una categoría para continuar.</p>
+            <fieldset class="wizard-category-fieldset" aria-describedby="product-category-help">
+              <legend>Categorías disponibles <span>(obligatorio)</span></legend>
+              <p id="wizard-category-selection" class="field-help" aria-live="polite">Aún no has seleccionado una categoría.</p>
+              <div class="admin-actions wizard-category-controls">
+                <button id="wizard-show-categories" class="button button-outline" type="button" aria-expanded="false" aria-controls="wizard-category-list">Mostrar categorías</button>
+                <button id="wizard-retry-categories" class="button button-text" type="button" hidden>Reintentar carga</button>
+              </div>
+              <p id="wizard-category-load-status" class="admin-status wizard-category-load-status" role="status" aria-live="polite"></p>
+              <div id="wizard-category-list" class="wizard-category-list" role="radiogroup" aria-required="true" hidden></div>
+              <select id="product-category" name="categoryId" class="visually-hidden" tabindex="-1" aria-hidden="true"></select>
+            </fieldset>
+            <p id="product-category-help" class="field-help">Si no encuentras una categoría adecuada, puedes crear una nueva.</p>
+            <button id="wizard-toggle-category" class="button button-outline" type="button">＋ Crear nueva categoría</button>
+            <div id="wizard-new-category-panel" class="wizard-new-category" hidden>
+              <label class="field-label" for="wizard-new-category-name">Nombre de la categoría</label>
+              <input id="wizard-new-category-name" type="text" maxlength="160" autocomplete="off">
+              <div class="admin-actions"><button id="wizard-save-category" class="button button-dark" type="button">Guardar categoría</button><button id="wizard-cancel-category" class="button button-text" type="button">Cancelar</button></div>
+              <p id="wizard-category-status" class="admin-status" role="status" aria-live="polite"></p>
+            </div>
+            <a class="wizard-manage-categories" href="#category-management" data-open-categories>Administrar categorías y opciones</a>
+          </section>
+
+          <section class="wizard-step" data-wizard-step="3" aria-labelledby="wizard-step-three-title" hidden>
+            <p class="eyebrow">Paso 3 de 5</p>
+            <h3 id="wizard-step-three-title" tabindex="-1">Fotografías</h3>
+            <p class="wizard-help">Las fotos se guardan primero en tu bandeja privada. Al guardar el mueble se asociarán al producto y permanecerán ocultas hasta que decidas mostrarlas.</p>
+            <div id="wizard-media-preview" class="wizard-existing-photos" aria-live="polite"></div>
+            <fieldset class="wizard-photo-picker">
+              <legend>Agregar fotografías <span class="optional-label">(opcional)</span></legend>
+              <div id="wizard-photo-dropzone" class="photo-dropzone">
+                <strong>Arrastra fotografías aquí</strong>
+                <p class="field-help">o elige varios archivos desde tu equipo.</p>
+                <label class="button button-outline photo-select-button" for="wizard-photo-files">Seleccionar fotografías
+                  <input id="wizard-photo-files" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+                </label>
+              </div>
+              <p class="field-help">Formatos: JPG, PNG o WebP. Se conservan los límites de tamaño y cantidad del servidor.</p>
+              <ul id="wizard-selected-photos" class="photo-selection-list" aria-live="polite"></ul>
+              <div class="wizard-photo-actions">
+                <button id="wizard-photo-upload" class="button button-dark" type="button" disabled>Subir fotografías</button>
+                <button id="wizard-photo-retry" class="button button-outline" type="button" hidden>Reintentar fotografías fallidas</button>
+              </div>
+              <p id="wizard-photo-status" class="admin-status" role="status" aria-live="polite"></p>
+            </fieldset>
+            <fieldset class="wizard-cover-fieldset">
+              <legend>Fotografía de portada</legend>
+              <p class="field-help">Elige cuál quieres mostrar primero. Puedes cambiarla mientras editas el mueble.</p>
+              <div id="wizard-cover-options" class="wizard-cover-options"></div>
+            </fieldset>
+            <fieldset class="wizard-video-fieldset">
+              <legend>Video del trabajo <span class="optional-label">(opcional)</span></legend>
+              <p id="wizard-video-help" class="field-help">Formatos MP4 o WebM. El video se reproduce bajo demanda en los detalles públicos.</p>
+              <div id="wizard-video-preview" class="wizard-video-preview" aria-live="polite"></div>
+              <label class="button button-outline photo-select-button" for="wizard-video-file">Seleccionar video
+                <input id="wizard-video-file" class="visually-hidden" type="file" accept="video/mp4,video/webm,.mp4,.webm">
+              </label>
+              <button id="wizard-video-remove" class="button button-text" type="button" hidden>Quitar video al guardar</button>
+              <p id="wizard-video-status" class="admin-status" role="status" aria-live="polite"></p>
+            </fieldset>
+          </section>
+
+          <section class="wizard-step" data-wizard-step="4" aria-labelledby="wizard-step-four-title" hidden>
+            <p class="eyebrow">Paso 4 de 5</p>
+            <h3 id="wizard-step-four-title" tabindex="-1">Precio y medidas</h3>
+            <fieldset class="product-price-settings">
+              <legend>¿Cómo se manejará el precio de este mueble?</legend>
+              <label class="price-mode-option"><input id="product-price-mode-quote" name="productPriceMode" type="radio" value="quote" checked><span><strong>Precio por cotizar</strong><small>El cliente solicitará una cotización.</small></span></label>
+              <label class="price-mode-option"><input id="product-price-mode-defined" name="productPriceMode" type="radio" value="defined"><span><strong>Precio definido</strong></span></label>
+              <div id="product-price-entry" hidden>
+                <label class="field-label" for="product-price">Precio del mueble</label>
+                <div class="product-price-input"><input id="product-price" type="text" inputmode="decimal" autocomplete="off" placeholder="Ej. 250000"><span id="product-price-currency">COP</span></div>
+                <p class="field-help">Escribe el valor en pesos, sin separador de miles. Se permiten hasta dos decimales.</p>
+              </div>
+            </fieldset>
+            <details class="advanced-settings">
+              <summary>Opciones avanzadas de precio</summary>
+              <p class="field-help">Completa esta regla solo si ya fue definida y aprobada para el negocio. Puedes dejarla vacía para recibir solicitudes de cotización.</p>
+              <label class="field-label" for="product-pricing-rules">Regla de precio aprobada</label>
+              <textarea id="product-pricing-rules" name="pricingRules" rows="7" spellcheck="false" aria-describedby="product-pricing-help"></textarea>
+              <p id="product-pricing-help" class="field-help">La regla del mueble tiene prioridad sobre la de su categoría. Las medidas que use deben estar configuradas abajo.</p>
+            </details>
+            <fieldset class="dimension-editor customer-measurements-editor">
+              <legend>¿Qué medidas necesitas configurar?</legend>
+              <p class="field-help">Agrega medidas solo si el cliente debe proporcionarlas para solicitar una cotización.</p>
+              <div class="measurement-template-tools">
+                <p id="product-template-help" class="field-help" aria-live="polite">Elige una categoría para revisar sus medidas sugeridas.</p>
+                <button id="apply-category-template" class="button button-outline" type="button" disabled>Usar medidas de la categoría</button>
+              </div>
+              <div id="product-dimensions" class="measurement-list" aria-live="polite"><p class="measurement-empty">Aún no se han agregado medidas.</p></div>
+              <div class="measurement-add-row"><label class="field-label" for="product-dimension-type">Elige una medida para agregar</label><div class="measurement-add-controls"><select id="product-dimension-type"><option value="width_m">Ancho</option><option value="height_m">Alto</option><option value="length_m">Largo</option><option value="depth_m">Fondo o profundidad</option><option value="thickness_m">Espesor</option><option value="custom">Escribir otro nombre</option></select><button id="add-product-dimension" class="button button-outline" type="button">＋ Agregar medida</button></div></div>
+            </fieldset>
+            <fieldset id="fixed-dimensions-editor" class="dimension-editor fixed-dimensions-editor">
+              <legend>Dimensiones fijas del mueble</legend>
+              <p class="field-help">El cliente podrá consultarlas; no tendrá que escribirlas al solicitar una cotización.</p>
+              <p id="fixed-dimensions-legacy-note" class="field-help fixed-dimensions-warning" hidden>Este producto tiene información anterior en un formato que esta pantalla no reconoce. Se conservará sin cambios para evitar perderla.</p>
+              <div id="fixed-dimensions" class="measurement-list" aria-live="polite"><p class="measurement-empty">No hay dimensiones fijas.</p></div>
+              <div class="measurement-add-row"><button id="add-fixed-dimension" class="button button-outline" type="button">＋ Agregar dimensión</button></div>
+            </fieldset>
+            <section class="measurement-preview-section" aria-labelledby="measurement-preview-title"><h4 id="measurement-preview-title">Vista previa</h4><div id="measurement-preview" class="measurement-preview"></div></section>
+          </section>
+
+          <section class="wizard-step" data-wizard-step="5" aria-labelledby="wizard-step-five-title" hidden>
+            <p class="eyebrow">Paso 5 de 5</p>
+            <h3 id="wizard-step-five-title" tabindex="-1">Revisar y guardar</h3>
+            <p class="wizard-help">Revisa el resumen y vuelve a cada paso si necesitas corregir algo.</p>
+            <dl id="product-review" class="product-review"></dl>
+            <div class="wizard-review-actions">
+              <button class="button button-text" type="button" data-review-step="1">Editar datos</button>
+              <button class="button button-text" type="button" data-review-step="2">Cambiar categoría</button>
+              <button class="button button-text" type="button" data-review-step="3">Revisar fotografías</button>
+              <button class="button button-text" type="button" data-review-step="4">Cambiar precio o medidas</button>
+            </div>
+            <div class="save-choice">
+              <p id="save-draft-choice"><strong>Guardar mueble</strong><br>Se guardará como borrador y permanecerá oculto a tus clientes.</p>
+              <p id="save-publish-choice"><strong>Guardar y publicar</strong><br>Esta acción es explícita. Las fotografías nuevas seguirán ocultas hasta que decidas mostrarlas.</p>
+            </div>
+            <p id="publish-requirements" class="field-help">Para publicar, el sistema requiere una categoría activa y reglas de precio compatibles con las medidas.</p>
+            <div class="admin-actions wizard-save-actions">
+              <button id="save-draft-button" class="button button-dark" type="submit" data-save-mode="draft">Guardar mueble</button>
+              <button id="save-publish-button" class="button button-outline" type="submit" data-save-mode="publish">Guardar y publicar</button>
+            </div>
+          </section>
+          <div class="wizard-navigation">
+            <button id="wizard-previous" class="button button-outline" type="button" hidden>Anterior</button>
+            <span class="wizard-navigation-spacer"></span>
+            <button id="wizard-next" class="button button-dark" type="button">Continuar</button>
+          </div>
+        </form>
+        <section id="product-save-result" class="product-save-result" hidden aria-live="polite">
+          <h3>Mueble guardado</h3>
+          <p id="product-save-result-message"></p>
+          <div class="admin-actions"><button id="return-to-products" class="button button-outline" type="button">Volver al catálogo</button><button id="add-another-product" class="button button-dark" type="button">Agregar otro mueble</button></div>
+        </section>
+      </section>
+
+      <section id="products-section" class="admin-section" aria-labelledby="products-title">
+        <div class="admin-section-heading product-list-heading">
+          <div><p class="eyebrow">Tu tienda</p><h2 id="products-title" tabindex="-1">Mis trabajos</h2></div>
+          <button class="button button-dark" type="button" data-start-wizard>＋ Agregar producto</button>
+        </div>
+        <div class="product-list-tools">
+          <label for="product-search">Buscar trabajo</label>
+          <input id="product-search" type="search" autocomplete="off" placeholder="Nombre, descripción o categoría">
+          <label for="product-status-filter">Estado</label>
+          <select id="product-status-filter">
+            <option value="all">Todos</option>
+            <option value="published">Publicados</option>
+            <option value="draft">Borradores</option>
+          </select>
+          <p id="product-list-status" class="field-help" role="status" aria-live="polite"></p>
+        </div>
+        <p id="products-empty-help" class="products-empty-help" hidden>Aún no tienes productos. Cuando agregues uno, aparecerá aquí. Los borradores permanecen ocultos para tus clientes.</p>
+        <ul id="product-list" class="admin-record-list product-grid" aria-live="polite"></ul>
+      </section>
+      </div>
+
+      <section id="photo-inbox" class="admin-section photo-inbox" data-admin-view="photo-inbox" aria-labelledby="photo-inbox-title" hidden>
+        <div class="admin-section-heading">
+          <div><p class="eyebrow">Bandeja privada</p><h2 id="photo-inbox-title" tabindex="-1">Fotografías pendientes</h2></div>
+        </div>
+        <p class="wizard-help">Aquí puedes revisar, clasificar o eliminar fotografías que aún no pertenecen a un mueble.</p>
+        <p id="photo-pending-count" class="field-help" aria-live="polite"></p>
+        <p id="photo-inbox-status" class="admin-status" role="status" aria-live="polite"></p>
+        <div class="photo-inbox-toolbar">
+          <label class="field-label" for="photo-search">Buscar por nombre de archivo</label>
+          <div class="photo-search-controls">
+            <input id="photo-search" type="search" maxlength="100">
+            <button id="photo-search-button" class="button button-outline" type="button">Buscar</button>
+          </div>
+        </div>
+        <div id="photo-pending-grid" class="photo-pending-grid" aria-live="polite"></div>
+        <div class="photo-pagination">
+          <button id="photo-page-previous" class="button button-outline" type="button" disabled>Anterior</button>
+          <span id="photo-page-status" class="field-help" aria-live="polite"></span>
+          <button id="photo-page-next" class="button button-outline" type="button" disabled>Siguiente</button>
+        </div>
+      </section>
+
+      <section id="image-library" class="admin-section photo-inbox" data-admin-view="image-library" aria-labelledby="image-library-title" hidden>
+        <div class="admin-section-heading">
+          <div><p class="eyebrow">Archivo permanente</p><h2 id="image-library-title" tabindex="-1">Biblioteca de imágenes</h2></div>
+        </div>
+        <p class="wizard-help">Aquí se conservan todas las fotografías subidas, estén pendientes o asociadas a trabajos. Retirar una foto de un trabajo no la elimina de la biblioteca.</p>
+        <p id="image-library-status" class="admin-status" role="status" aria-live="polite"></p>
+        <div class="photo-inbox-toolbar">
+          <label class="field-label" for="image-library-search">Buscar por archivo o trabajo</label>
+          <div class="photo-search-controls">
+            <input id="image-library-search" type="search" maxlength="100">
+            <button id="image-library-search-button" class="button button-outline" type="button">Buscar</button>
+          </div>
+        </div>
+        <p id="image-library-count" class="field-help" aria-live="polite"></p>
+        <div id="image-library-grid" class="photo-pending-grid" aria-live="polite"></div>
+        <div class="photo-pagination">
+          <button id="image-library-previous" class="button button-outline" type="button" disabled>Anterior</button>
+          <span id="image-library-page-status" class="field-help" aria-live="polite"></span>
+          <button id="image-library-next" class="button button-outline" type="button" disabled>Siguiente</button>
+        </div>
+      </section>
+
+      <section id="photo-upload-section" class="admin-section photo-upload-section" data-admin-view="photo-upload-section" aria-labelledby="photo-upload-title" hidden>
+        <div class="admin-section-heading">
+          <div><p class="eyebrow">Carga de fotografías</p><h2 id="photo-upload-title" tabindex="-1">Carga masiva</h2></div>
+        </div>
+        <p class="wizard-help">Sube hasta 100 fotografías por lote. Quedarán privadas y pendientes hasta que las asignes a un mueble.</p>
+        <div id="photo-upload-panel" class="photo-upload-panel">
+          <div id="photo-dropzone" class="photo-dropzone">
+            <span class="photo-dropzone-mark" aria-hidden="true">＋</span>
+            <strong>Arrastra aquí tus fotografías</strong>
+            <p class="field-help">o selecciona varias desde tu equipo. Puedes revisar las miniaturas antes de subirlas.</p>
+            <label class="button button-outline photo-select-button" for="photo-files">
+              Seleccionar fotografías
+              <input id="photo-files" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-describedby="photo-upload-help">
+            </label>
+          </div>
+          <p id="photo-upload-help" class="field-help">Formatos aceptados: JPG, PNG y WebP. El panel indica el límite por fotografía y por lote.</p>
+          <ul id="photo-selection-list" class="photo-selection-list" aria-live="polite"></ul>
+          <p id="photo-selected-count" class="field-help" aria-live="polite">0 fotografías seleccionadas</p>
+          <p id="photo-upload-status" class="admin-status" role="status" aria-live="polite"></p>
+          <div class="photo-upload-actions">
+            <button id="photo-upload-button" class="button button-dark" type="button" disabled>Subir fotografías</button>
+            <button id="photo-upload-retry" class="button button-outline" type="button" hidden disabled>Reintentar fallidas</button>
+          </div>
+          <div id="photo-upload-summary" class="photo-upload-summary" role="status" aria-live="polite" hidden></div>
+          <div class="photo-upload-finish-actions">
+            <a id="photo-upload-return" class="button button-outline" href="#photo-inbox" hidden>Ver fotografías pendientes</a>
+            <button id="photo-upload-next-batch" class="button button-text" type="button" hidden>Iniciar otro lote</button>
+          </div>
+        </div>
+      </section>
+
+      <details class="admin-section secondary-admin" id="category-management" data-admin-view="category-management" hidden>
+        <summary><span><span class="eyebrow">Opciones secundarias</span><strong>Organizar categorías</strong></span></summary>
+        <p class="wizard-help">Las categorías ayudan a ordenar los trabajos de tu tienda. No necesitas modificarlas para completar un producto.</p>
+        <div class="admin-layout">
+          <form id="category-form" class="admin-form">
+            <h3 id="category-form-title">Nueva categoría</h3>
+            <input id="category-id" type="hidden">
+            <label class="field-label" for="category-name">Nombre</label>
+            <input id="category-name" name="name" type="text" maxlength="160" required>
+            <label class="field-label" for="category-slug">Identificador web</label>
+            <input id="category-slug" name="slug" type="text" maxlength="120" pattern="[a-z0-9]+(-[a-z0-9]+)*" required>
+            <p class="field-help">Se completa automáticamente desde el nombre. Solo cámbialo si es necesario.</p>
+            <label class="field-label" for="category-description">Descripción <span class="optional-label">(opcional)</span></label>
+            <textarea id="category-description" name="description" rows="3" maxlength="3000"></textarea>
+            <fieldset class="dimension-editor category-template-editor">
+              <legend>Plantilla de medidas para pedir al cliente</legend>
+              <p class="field-help">La plantilla sugiere qué datos debe proporcionar el cliente. Cada producto recibe una copia independiente; editar la plantilla no cambia los productos guardados. Las dimensiones fijas se definen en cada producto.</p>
+              <div id="category-template-dimensions" class="measurement-list" aria-live="polite"><p class="measurement-empty">Esta categoría aún no tiene una plantilla de medidas.</p></div>
+              <div class="measurement-add-row">
+                <label class="field-label" for="template-dimension-type">Agregar una medida a la plantilla</label>
+                <div class="measurement-add-controls">
+                  <select id="template-dimension-type">
+                    <option value="width_m">Ancho</option>
+                    <option value="height_m">Alto</option>
+                    <option value="length_m">Largo</option>
+                    <option value="depth_m">Fondo o profundidad</option>
+                    <option value="thickness_m">Espesor</option>
+                    <option value="custom">Otra medida</option>
+                  </select>
+                  <button id="add-template-dimension" class="button button-outline" type="button">＋ Agregar medida</button>
+                </div>
+              </div>
+            </fieldset>
+            <details class="advanced-settings">
+              <summary>Regla de precio de esta categoría</summary>
+              <label class="field-label" for="category-pricing-rules">Regla aprobada (JSON)</label>
+              <textarea id="category-pricing-rules" name="pricingRules" rows="5" spellcheck="false" aria-describedby="category-pricing-help"></textarea>
+              <p id="category-pricing-help" class="field-help">Déjala vacía si aún no hay una regla comercial aprobada. Sigue el formato de docs/pricing-rules.md.</p>
+            </details>
+            <label class="check-field"><input id="category-active" type="checkbox" checked> Categoría activa</label>
+            <div class="admin-actions">
+              <button class="button button-dark" type="submit">Guardar categoría</button>
+              <button id="cancel-category-edit" class="button button-text" type="button" hidden>Cancelar edición</button>
+            </div>
+          </form>
+          <div>
+            <h3 class="visually-hidden">Categorías existentes</h3>
+            <ul id="category-list" class="admin-record-list" aria-live="polite"></ul>
+          </div>
+        </div>
+      </details>
+    </main>
+    <footer class="site-footer"><p>Panel privado</p></footer>
+  </body>
+</html>

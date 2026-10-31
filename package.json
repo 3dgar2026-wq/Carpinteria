@@ -1,0 +1,26 @@
+{
+  "name": "carpinteria-catalogo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Catálogo web y panel administrativo para una carpintería.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "start": "node --env-file=.env server/index.js",
+    "dev": "node --env-file=.env --watch server/index.js",
+    "test": "node --test",
+    "test:security:static": "node --test test/security-regression.test.js",
+    "test:security:integration": "node scripts/run-security-integration.js",
+    "db:migrate": "node --env-file=.env scripts/migrate.js",
+    "db:encrypt-admin-emails": "node --env-file=.env scripts/encrypt-admin-emails.js",
+    "db:seed:catalog": "node --env-file=.env scripts/seed-catalog.js",
+    "admin:create-owner": "node --env-file=.env scripts/create-owner.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "nodemailer": "10.2.1",
+    "pg": "^8.16.3"
+  }
+}

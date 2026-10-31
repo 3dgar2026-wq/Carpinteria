@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Iniciar sesión · Administración</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/admin.css">
+  </head>
+  <body class="admin-page">
+    <a class="skip-link" href="#contenido">Saltar al contenido</a>
+    <header class="site-header">
+      <a class="wordmark" href="/">Carpintería</a>
+      <nav aria-label="Navegación principal"><a href="/">Ver catálogo</a></nav>
+    </header>
+    <main id="contenido" class="admin-main login-main">
+      <p class="eyebrow">Acceso privado</p>
+      <h1>Administración</h1>
+      <p>Inicia sesión para gestionar categorías y trabajos del catálogo.</p>
+      <form class="admin-form login-form" action="/admin/login" method="post">
+        <input type="hidden" name="csrf_token" value="@@LOGIN_CSRF_TOKEN@@">
+        <p class="admin-status" role="status" aria-live="polite">@@LOGIN_MESSAGE@@</p>
+        <label class="field-label" for="login-email">Correo</label>
+        <input id="login-email" name="email" type="email" autocomplete="username" maxlength="254" required>
+        <label class="field-label" for="login-password">Contraseña</label>
+        <input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="1024" required>
+        <button class="button button-dark" type="submit">Iniciar sesión</button>
+        <a href="/admin/recover-password">¿Olvidaste tu contraseña?</a>
+      </form>
+    </main>
+    <footer class="site-footer"><p>Panel administrativo</p></footer>
+  </body>
+</html>

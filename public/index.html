@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Explora muebles de madera publicados, consulta sus medidas y solicita una cotización.">
+    <title>Carpintería — muebles en madera</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/catalog.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#contenido">Saltar al contenido</a>
+    <header class="site-header site-header-overlay">
+      <a class="wordmark" href="/" aria-label="Inicio">Carpintería</a>
+      <nav aria-label="Navegación principal">
+        <a href="#trabajos">Muebles</a>
+        <a href="#solicitud">Cotizar</a>
+        <a href="#solicitud" class="request-nav-link">Mi solicitud <span id="request-count" class="request-count" aria-label="0 productos">0</span></a>
+        <a id="admin-access-link" class="admin-access-link" href="/admin" hidden>Administración</a>
+      </nav>
+    </header>
+    <main id="contenido">
+      <section class="hero has-hero-image" aria-labelledby="hero-title">
+        <figure class="hero-feature">
+          <img src="/images/taller-carpinteria.png" alt="Taller de carpintería con herramientas, mesas de trabajo y una oficina lateral." width="1536" height="1024" fetchpriority="high" decoding="async">
+        </figure>
+        <div class="hero-copy-column">
+          <p class="eyebrow">Ebanistería · muebles en madera</p>
+          <h1 id="hero-title">Muebles hechos para vivirlos.</h1>
+          <p class="hero-copy">Explora los modelos publicados, revisa sus medidas y precios disponibles y consulta por el diseño que te interesa.</p>
+          <div class="hero-actions">
+            <a class="button button-dark" href="#trabajos">Explorar muebles</a>
+            <a class="button button-outline" href="#solicitud">Solicitar cotización</a>
+          </div>
+          <a class="hero-scroll-cue" href="#trabajos">Descubre los muebles <span aria-hidden="true">↓</span></a>
+        </div>
+      </section>
+
+      <section class="catalog-section" id="trabajos" aria-labelledby="work-title">
+        <div class="section-heading">
+          <div class="catalog-heading-copy">
+            <p class="eyebrow">Catálogo</p>
+            <h2 id="work-title">Encuentra el mueble que buscas.</h2>
+            <p>Compara los modelos publicados y consulta la información disponible en cada uno.</p>
+          </div>
+          <p id="catalog-status" class="catalog-status" role="status" aria-live="polite">Cargando muebles…</p>
+        </div>
+        <div class="category-filters" role="group" aria-label="Filtrar muebles por categoría" hidden></div>
+        <div id="product-grid" class="product-grid" tabindex="-1" aria-busy="true"></div>
+      </section>
+
+      <section class="request-section" id="solicitud" aria-labelledby="request-title">
+        <div class="request-intro">
+          <p class="eyebrow">Tu cotización</p>
+          <h2 id="request-title">¿Qué mueble te interesa?</h2>
+          <p>Agrega modelos y medidas. Preparamos el mensaje para que lo revises antes de enviarlo por WhatsApp.</p>
+        </div>
+        <div class="request-panel">
+          <div class="request-panel-heading">
+            <p class="eyebrow">Mi selección</p>
+            <p id="request-status" class="request-status" role="status" aria-live="polite">Aún no has agregado muebles.</p>
+          </div>
+          <div id="request-empty" class="request-empty">
+            <h3>Tu lista está vacía</h3>
+            <p>Explora los modelos y agrega los muebles que quieres cotizar.</p>
+            <a class="request-empty-link" href="#trabajos">Explorar muebles <span aria-hidden="true">→</span></a>
+          </div>
+          <ol id="request-items" class="request-items"></ol>
+          <label class="field-label" for="request-text">Resumen de tu consulta</label>
+          <textarea id="request-text" rows="7" readonly aria-describedby="request-help" placeholder="Aquí aparecerán los muebles y medidas que agregues."></textarea>
+          <p id="request-help" class="field-help">La consulta se abrirá en WhatsApp con el resumen de tus muebles, medidas y precios disponibles.</p>
+          <div class="request-actions">
+            <button id="send-whatsapp" class="button button-dark" type="button">Enviar por WhatsApp</button>
+            <button id="copy-request" class="button button-outline" type="button" disabled>Copiar consulta</button>
+            <button id="clear-request" class="button button-text" type="button" disabled>Vaciar lista</button>
+          </div>
+        </div>
+      </section>
+    </main>
+    <dialog id="product-details-dialog" class="product-details-dialog" aria-labelledby="product-detail-title">
+      <div class="product-details-panel">
+        <button id="product-details-close" class="product-details-close" type="button" aria-label="Cerrar detalles">×</button>
+        <div id="product-details-content"></div>
+      </div>
+    </dialog>
+    <footer class="site-footer">
+      <p class="footer-title">Carpintería</p>
+      <p>Muebles y trabajos en madera.</p>
+    </footer>
+  </body>
+</html>

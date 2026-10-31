@@ -1,0 +1,38 @@
+node_modules/
+.env
+.env.*
+!.env.example
+coverage/
+*.log
+.agents/skills/
+/var/media/
+
+# Local secrets and credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+credentials/
+secrets/
+
+# Local databases, exports, and backups
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.backup
+*.bak
+
+# Temporary and operating-system files
+*.tmp
+*.temp
+*.swp
+*~
+.DS_Store
+Thumbs.db
+/tmp/
+/temp/
+
+# Auxiliary workflow depends on the locally ignored audit skill files
+/.github/workflows/security-validator-posix.yml
