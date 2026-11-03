@@ -2,7 +2,7 @@ import { pool } from './db.js';
 import { MediaStorageConfigurationError, validateMediaStorageConfiguration } from './media-storage-config.js';
 
 if (!process.env.DATABASE_URL) {
-  console.error('Falta DATABASE_URL. Copia .env.example a .env y configura PostgreSQL.');
+  console.error('Falta DATABASE_URL. Define esta variable en el entorno de ejecución.');
   process.exit(1);
 }
 

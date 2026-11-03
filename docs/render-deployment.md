@@ -9,6 +9,8 @@
 - Puerto: Render entrega `PORT`; Express escucha en `0.0.0.0`.
 - `NODE_ENV=production` y `MEDIA_STORAGE_PROVIDER=cloudinary`.
 
+El comando de Render no lee `.env`; el servidor utiliza exclusivamente las variables configuradas para el servicio. En local, `npm run dev` carga el archivo `.env`; `npm start` ejecuta `node server/index.js` sin cargar archivos de entorno. La validación de `DATABASE_URL`, Cloudinary y demás configuración requerida permanece activa antes de que el servidor escuche.
+
 Completa en Render los valores `sync: false` con el gestor de secretos:
 
 | Variable | Uso |

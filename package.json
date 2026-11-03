@@ -8,7 +8,7 @@
     "node": "24.22.2"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env server/index.js",
+    "start": "node server/index.js",
     "dev": "node --env-file=.env --watch server/index.js",
     "test": "node --test",
     "test:security:static": "node --test test/security-regression.test.js",

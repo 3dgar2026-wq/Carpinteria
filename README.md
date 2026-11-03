@@ -9,7 +9,7 @@ Catálogo público y panel administrativo. Requiere PostgreSQL y Node.js `24.22.
 3. Instala dependencias con `npm ci`.
 4. En una base local realmente nueva, aplica las seis migraciones con `npm run db:migrate -- --database carpinteria_db`. Comprueba e inspecciona el destino antes de ejecutar el comando.
 5. Solo si la base nueva no tiene usuarios, crea el propietario con `npm run admin:create-owner -- --database carpinteria_db`. El asistente oculta la contraseña. No ejecutes este paso contra la base Neon ya inicializada: el propietario ya existe.
-6. Inicia en desarrollo con `npm run dev` o `npm start`.
+6. Inicia en desarrollo con `npm run dev`; este comando carga `.env`. `npm start` ejecuta el servidor sin leer archivos de entorno y requiere que las variables ya estén en el entorno del proceso.
 7. Abre `http://localhost:3000` para el catálogo y `http://localhost:3000/admin` para la administración protegida.
 
 Para Neon, usa `DATABASE_URL` (conexión agrupada) en el servidor y entrega `DATABASE_URL_UNPOOLED` únicamente a una tarea operativa que lo requiera. El migrador reconoce las seis migraciones numeradas 001–006; una base nueva requiere las seis, pero esta aplicación ya tiene propietario y no necesita volver a inicializarse. El migrador detiene objetos existentes sin ledger y exige revisión y respaldo antes de cambios incrementales. No ejecutes migraciones contra la base de producción como parte del arranque.
