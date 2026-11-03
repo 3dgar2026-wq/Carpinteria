@@ -257,7 +257,8 @@ main { display: block; }
   .hero-copy { max-width: 33rem; margin-top: 1.3rem; }
   .hero.has-hero-image { height: auto; min-height: 0; padding: 1.25rem var(--space-page) 1.5rem; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 1.25rem; }
   .hero.has-hero-image .hero-feature { position: relative; inset: auto; width: 100%; max-width: 100%; height: auto; aspect-ratio: 3 / 2; flex: 0 0 auto; transform: none; }
-  .hero.has-hero-image .hero-copy-column { width: 100%; height: auto; max-width: none; grid-column: auto; grid-row: auto; margin: 0; padding: 0; background: transparent; }
+  .hero.has-hero-image .hero-copy-column { width: 100%; height: auto; max-width: none; grid-column: auto; grid-row: auto; margin: 0; padding: 0; border-left: 0; background: transparent; }
+  .hero.has-hero-image .eyebrow::before { content: none; }
   .hero.has-hero-image h1 { max-width: 10ch; font-size: clamp(2.7rem, 11vw, 4.3rem); }
   .hero.has-hero-image .hero-actions { flex-direction: column; align-items: stretch; }
   .hero.has-hero-image .hero-actions .button { width: 100%; }
