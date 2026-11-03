@@ -15,6 +15,13 @@ const productDetailsDialog = document.querySelector('#product-details-dialog');
 const productDetailsContent = document.querySelector('#product-details-content');
 const productDetailsClose = document.querySelector('#product-details-close');
 const adminAccessLink = document.querySelector('#admin-access-link');
+const copyrightYear = document.querySelector('#copyright-year');
+
+if (copyrightYear) {
+  const year = String(new Date().getFullYear());
+  copyrightYear.dateTime = year;
+  copyrightYear.textContent = year;
+}
 
 const standardDimensions = new Set(['width_m', 'height_m', 'depth_m', 'length_m', 'thickness_m']);
 const maximumDimensionCount = 12;

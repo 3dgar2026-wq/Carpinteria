@@ -233,6 +233,17 @@ main { display: block; }
 .site-footer { min-height: 9rem; padding: 2.25rem var(--space-page); display: flex; flex-wrap: wrap; align-content: center; align-items: baseline; justify-content: space-between; gap: .5rem 2rem; border-top: 1px solid rgba(229,185,159,.24); background: var(--night-deep); color: var(--white); }
 .footer-title { margin: 0; font: 500 2.5rem/1 var(--font-editorial); }
 .site-footer > p:last-child { margin: 0; font-size: .8rem; }
+.public-footer { min-height: 0; padding: 2.5rem var(--space-page) 1.25rem; display: block; }
+.public-footer-inner { width: 100%; max-width: 88rem; margin: 0 auto; }
+.public-footer-content { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 2rem 3rem; }
+.public-footer .footer-title { display: inline-block; color: var(--white); text-decoration: none; }
+.public-footer-description { max-width: 28rem; margin: .8rem 0 0; color: rgba(255,255,255,.78); font-size: .9rem; }
+.public-footer-heading { margin: .2rem 0 .8rem; color: var(--copper-light); font-size: .7rem; font-weight: 650; letter-spacing: .11em; text-transform: uppercase; }
+.public-footer-navigation ul { margin: 0; padding: 0; display: grid; gap: .5rem; list-style: none; }
+.public-footer-navigation a { color: rgba(255,255,255,.88); font-size: .83rem; text-decoration-color: rgba(229,185,159,.45); text-underline-offset: .22em; }
+.public-footer-navigation a:hover { color: var(--copper-light); }
+.public-footer-legal { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid rgba(229,185,159,.24); }
+.public-footer-legal p { margin: 0; color: rgba(255,255,255,.72); font-size: .75rem; }
 
 @media (min-width: 1200px) {
   .hero { min-height: min(49rem, 88svh); }
@@ -278,6 +289,9 @@ main { display: block; }
   .request-panel > .field-label { margin-top: 1rem; }
   .request-actions { margin-bottom: 1rem; }
   .request-panel-heading { align-items: start; flex-direction: column; gap: .25rem; }
+  .public-footer { padding-top: 2rem; }
+  .public-footer-content { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+  .public-footer-legal { margin-top: 1.5rem; }
   .product-detail-layout { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
   .product-detail-photo { max-height: min(40vh, 22rem); aspect-ratio: 16 / 10; margin-top: .75rem; }
   .product-detail-information { padding-top: 0; }
