@@ -6,8 +6,8 @@ Este documento prepara la separación entre la cuenta normal de la aplicación y
 
 - `server/db.js` crea el pool de la aplicación usando `DATABASE_URL`.
 - `scripts/migrate.js`, `scripts/seed-catalog.js` y `scripts/create-owner.js` también consumen `DATABASE_URL`, pero son operaciones de despliegue/operación que deben recibir una URL separada en su proceso de ejecución.
-- El servidor consulta `roles` y `users`; consulta y administra `categories`, `products`, `media_assets` y `product_media`; registra eventos en `audit_log`; y administra `admin_sessions` y `admin_login_attempts`.
-- El código de servidor inspeccionado no consulta `business_settings` ni `schema_migrations`. `schema_migrations` la crea y utiliza el proceso de migración.
+- El servidor consulta `roles` y `users`; consulta y administra `categories`, `products`, `media_assets` y `product_media`; registra eventos en `audit_log`; administra `admin_sessions` y `admin_login_attempts`; la recuperación usa las dos tablas añadidas en la migración 006.
+- El código de servidor inspeccionado no consulta `business_settings` ni `schema_migrations`. La recuperación usa `admin_password_recoveries` y `admin_password_recovery_rate_limits`; la contraseña solo se actualiza por `users.password_hash` y `users.updated_at`.
 - El catálogo público necesita lectura en categorías, productos, relaciones multimedia y metadatos multimedia. No necesita acceso a los binarios almacenados fuera de PostgreSQL.
 
 ## Roles separados
@@ -44,6 +44,9 @@ GRANT INSERT, UPDATE, DELETE ON TABLE public.categories, public.products,
 GRANT INSERT ON TABLE public.audit_log TO carpinteria_runtime;
 GRANT SELECT, INSERT, DELETE ON TABLE public.admin_sessions TO carpinteria_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.admin_login_attempts TO carpinteria_runtime;
+GRANT UPDATE (password_hash, updated_at) ON TABLE public.users TO carpinteria_runtime;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.admin_password_recoveries TO carpinteria_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.admin_password_recovery_rate_limits TO carpinteria_runtime;
 ```
 
 Matriz de privilegios efectivos esperados para el runtime (las comprobaciones `has_table_privilege` deben coincidir también después de resolver membresías heredadas):
@@ -51,7 +54,7 @@ Matriz de privilegios efectivos esperados para el runtime (las comprobaciones `h
 | Tabla | SELECT | INSERT | UPDATE | DELETE | TRUNCATE |
 | --- | --- | --- | --- | --- | --- |
 | `roles` | sí | no | no | no | no |
-| `users` | sí | no | no | no | no |
+| `users` | sí | no | no* | no | no |
 | `categories` | sí | sí | sí | sí | no |
 | `products` | sí | sí | sí | sí | no |
 | `media_assets` | sí | sí | sí | sí | no |
@@ -60,7 +63,11 @@ Matriz de privilegios efectivos esperados para el runtime (las comprobaciones `h
 | `audit_log` | no | sí | no | no | no |
 | `admin_sessions` | sí | sí | no | sí | no |
 | `admin_login_attempts` | sí | sí | sí | sí | no |
+| `admin_password_recoveries` | sí | sí | sí | no | no |
+| `admin_password_recovery_rate_limits` | sí | sí | sí | sí | no |
 | `schema_migrations` | no | no | no | no | no |
+
+`users` no recibe UPDATE a nivel tabla: solo `password_hash` y `updated_at` tienen UPDATE por columna para permitir la recuperación de contraseña sin ampliar otros campos personales.
 
 Ninguna tabla requiere `REFERENCES` o `TRIGGER`. En secuencias, runtime requiere solo `USAGE` en las secuencias de identidad de `categories`, `products`, `media_assets` y `audit_log` para inserts; no necesita `SELECT` ni `UPDATE` en ninguna secuencia. `roles` y `users` no requieren acceso runtime a sus secuencias. `TRUNCATE` se deniega en todas las tablas. Las excepciones de escritura anteriores corresponden a operaciones actuales del servidor: CRUD administrativo de categorías/productos/metadatos y relaciones multimedia, auditoría append-only, sesiones y el contador persistente de intentos.
 
@@ -81,7 +88,7 @@ BEGIN
 END $$;
 ```
 
-Runtime no necesita escritura en `roles` o `users`, acceso a `business_settings`, `schema_migrations`, DDL, creación de roles, ni privilegios globales. No revoque privilegios preexistentes a ciegas: inspeccione `information_schema.role_table_grants`, `pg_roles`, `pg_default_acl`, propietarios y membresías, y pruebe las operaciones legítimas con una base de staging aislada. Si una futura función cambia estos requisitos, revise esta lista antes de ampliar permisos.
+Runtime no necesita escritura en `roles`, acceso a `business_settings` o `schema_migrations`, DDL, creación de roles, ni privilegios globales. La excepción columnar de `users` solo habilita la recuperación. No revoque privilegios preexistentes a ciegas: inspeccione `information_schema.role_table_grants`, `information_schema.column_privileges`, `pg_roles`, `pg_default_acl`, propietarios y membresías, y pruebe las operaciones legítimas con una base de staging aislada. Si una futura función cambia estos requisitos, revise esta lista antes de ampliar permisos.
 
 En PostgreSQL anterior a la versión 15, `PUBLIC` puede tener `CREATE` sobre el esquema `public`. En una base dedicada a esta aplicación, el DBA debe comprobar esa concesión y considerar `REVOKE CREATE ON SCHEMA public FROM PUBLIC;` antes de probar que runtime no puede crear objetos. En una base compartida, no revoque permisos globales sin revisar quién depende de ellos.
 
@@ -142,7 +149,8 @@ LEFT JOIN pg_roles grantee ON grantee.oid = acl.grantee
 WHERE n.nspname = 'public'
   AND c.relname IN ('roles', 'users', 'categories', 'products', 'media_assets',
                     'product_media', 'business_settings', 'audit_log', 'admin_sessions',
-                    'admin_login_attempts', 'schema_migrations')
+                    'admin_login_attempts', 'admin_password_recoveries',
+                    'admin_password_recovery_rate_limits', 'schema_migrations')
   AND (acl.grantee = 0 OR acl.grantee = (SELECT oid FROM pg_roles WHERE rolname = 'carpinteria_runtime'))
 ORDER BY c.relname, grantee, acl.privilege_type;
 
@@ -189,6 +197,15 @@ SELECT has_schema_privilege(current_user, 'public', 'USAGE') AS schema_usage,
        has_table_privilege(current_user, 'public.admin_login_attempts', 'INSERT') AS attempts_insert,
        has_table_privilege(current_user, 'public.admin_login_attempts', 'UPDATE') AS attempts_update,
        has_table_privilege(current_user, 'public.admin_login_attempts', 'DELETE') AS attempts_delete,
+       has_table_privilege(current_user, 'public.admin_password_recoveries', 'SELECT') AS recovery_select,
+       has_table_privilege(current_user, 'public.admin_password_recoveries', 'INSERT') AS recovery_insert,
+       has_table_privilege(current_user, 'public.admin_password_recoveries', 'UPDATE') AS recovery_update,
+       has_table_privilege(current_user, 'public.admin_password_recovery_rate_limits', 'SELECT') AS recovery_limits_select,
+       has_table_privilege(current_user, 'public.admin_password_recovery_rate_limits', 'INSERT') AS recovery_limits_insert,
+       has_table_privilege(current_user, 'public.admin_password_recovery_rate_limits', 'UPDATE') AS recovery_limits_update,
+       has_table_privilege(current_user, 'public.admin_password_recovery_rate_limits', 'DELETE') AS recovery_limits_delete,
+       has_column_privilege(current_user, 'public.users', 'password_hash', 'UPDATE') AS users_password_hash_update,
+       has_column_privilege(current_user, 'public.users', 'updated_at', 'UPDATE') AS users_updated_at_update,
        has_table_privilege(current_user, 'public.audit_log', 'INSERT') AS audit_insert;
 
 SELECT table_name,
@@ -201,7 +218,8 @@ SELECT table_name,
        has_table_privilege(current_user, format('public.%I', table_name), 'TRIGGER') AS can_create_trigger
 FROM unnest(ARRAY[
   'roles', 'users', 'categories', 'products', 'media_assets', 'product_media',
-  'business_settings', 'audit_log', 'admin_sessions', 'admin_login_attempts', 'schema_migrations'
+  'business_settings', 'audit_log', 'admin_sessions', 'admin_login_attempts',
+  'admin_password_recoveries', 'admin_password_recovery_rate_limits', 'schema_migrations'
 ]) AS application_tables(table_name)
 ORDER BY table_name;
 
@@ -216,6 +234,6 @@ ORDER BY table_name;
 
 Expected table and sequence results must match the matrix exactly. `roles` and `users` sequence privileges must be false; `categories`, `products`, `media_assets` and `audit_log` sequence `USAGE` must be true while `SELECT`/`UPDATE` are false. Also verify `TRUNCATE`, `REFERENCES` and `TRIGGER` are false everywhere. `rolsuper`, `rolcreatedb`, `rolcreaterole`, `rolreplication`, `rolbypassrls`, `database_create`, `database_temp` and `schema_create` are false; `database_connect` is true with a direct, non-grantable `CONNECT` ACL for runtime. The database ACL query should show no `PUBLIC` grants. Inspect direct ACLs, role memberships (including transitive memberships), inherited effective privileges, owners and grant options; do not treat a direct ACL listing alone as the effective result. A `NULL` result means the referenced object/sequence is absent or not resolvable and must be investigated, not treated as a pass. Do not perform privilege changes or this verification in production during an audit.
 
-The integration test suite can exercise runtime-denial checks, but it deliberately requires a *separate disposable local PostgreSQL cluster* bound only to `127.0.0.1:55432`. It refuses other hosts, ports, database names, role reuse, superuser setup/runtime roles, unexpected application schemas/tables, migrations other than the five reviewed files, and pre-existing mutable application rows. Its connection preflight rejects any other session active at that instant; its effective `CONNECT` check excludes superusers, because PostgreSQL superusers bypass ACLs. Neither check prevents a privileged process from reconnecting later. The only permitted pre-existing rows are the two seeded role definitions and the exact migration ledger. It checks that `product_media` and `business_settings`, along with the other mutable tables, are empty. The migration CLI itself requires the database name `carpinteria_db`, so the test database must have that name inside that separate cluster. Never point these test variables at the existing development or production cluster; OS-level containment is required.
+The integration test suite can exercise runtime-denial checks, but it deliberately requires a *separate disposable local PostgreSQL cluster* bound only to `127.0.0.1:55432`. It refuses other hosts, ports, database names, role reuse, superuser setup/runtime roles, unexpected application schemas/tables, migrations other than the six reviewed files, and pre-existing mutable application rows. Its connection preflight rejects any other session active at that instant; its effective `CONNECT` check excludes superusers, because PostgreSQL superusers bypass ACLs. Neither check prevents a privileged process from reconnecting later. The only permitted pre-existing rows are the two seeded role definitions and the exact migration ledger. It checks that `product_media` and `business_settings`, along with the other mutable tables, are empty. The migration CLI itself requires the database name `carpinteria_db`, so the test database must have that name inside that separate cluster. Never point these test variables at the existing development or production cluster; OS-level containment is required.
 
 The suite expects the migrations already applied, a restricted runtime role, and a distinct non-superuser setup/migration role. Supply the test URLs through the process environment from a secret manager; do not put them in `.env`, shell history, or logs. The integration runner passes only the four documented test variables and its internal required-config flag to the child process, using the absolute `process.execPath` path to Node without adding `PATH` or copying the ambient environment. It accepts only the two expected role names, literal loopback host/port/database path, and URLs without query strings or fragments; those restrictions prevent `pg-connection-string` destination overrides and file-backed SSL options. That allowlist limits inherited variables; it is not an OS-level sandbox. Run `npm run test:security:integration` only inside the OS-enforced sandbox described in `security-integration-tests.md`. Missing variables cause an explicit omitted result; invalid target configuration or a failed database preflight must not be treated as a pass. The suite creates uniquely named test rows and removes only identified rows afterward; anonymous `admin.login.failed` audit rows cannot be correlated to one execution and are deliberately retained. Retire the entire disposable database/cluster afterward rather than reusing it. Empty tables, database comments and loopback checks are preflight indicators, not proof of OS-level disposability.

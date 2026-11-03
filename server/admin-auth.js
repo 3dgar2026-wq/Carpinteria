@@ -7,6 +7,7 @@ import express from 'express';
 import { pool, query } from './db.js';
 import { passwordParameters, verifyPassword } from './passwords.js';
 import { adminPasswordRecoveryHandlers } from './admin-password-recovery.js';
+import { resolveClientIp } from './client-ip.js';
 import {
   decryptAdminEmail,
   getEmailCryptoKeys,
@@ -73,71 +74,82 @@ function constantTimeEqual(left, right) {
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-function getRateBucket(request) {
-  if (!rateLimitKey) return null;
-  const address = request.socket.remoteAddress ?? 'unknown';
-  return createHmac('sha256', rateLimitKey).update(address).digest('hex');
+export function getLoginRateBucket(request, {
+  key = rateLimitKey, env = process.env, accountHash = null,
+} = {}) {
+  if (!key) return null;
+  if (env.RENDER === 'true') {
+    if (env.RENDER_SERVICE_TYPE !== 'web' || typeof accountHash !== 'string' || !/^[a-f0-9]{64}$/.test(accountHash)) return null;
+    return createHmac('sha256', key).update(`login-owner:${accountHash}`).digest('hex');
+  }
+  const address = resolveClientIp(request, env);
+  if (!address) return null;
+  return createHmac('sha256', key).update(address).digest('hex');
 }
 
-async function allowLoginAttempt(bucketHash) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query("DELETE FROM admin_login_attempts WHERE updated_at < now() - interval '1 day'");
-    await client.query(`
+export function createLoginAttemptLimiter({ limiterPool = pool, now = Date.now } = {}) {
+  return async function allowLoginAttempt(bucketHash) {
+    const client = await limiterPool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("DELETE FROM admin_login_attempts WHERE updated_at < now() - interval '1 day'");
+      await client.query(`
       INSERT INTO admin_login_attempts (bucket_hash, attempt_count)
       VALUES ($1, 0)
       ON CONFLICT (bucket_hash) DO NOTHING
     `, [bucketHash]);
-    const { rows } = await client.query(`
+      const { rows } = await client.query(`
       SELECT attempt_count, window_started_at, blocked_until
       FROM admin_login_attempts
       WHERE bucket_hash = $1
       FOR UPDATE
     `, [bucketHash]);
-    const attempt = rows[0];
-    const now = Date.now();
+      const attempt = rows[0];
+      const currentTime = now();
 
-    if (attempt.blocked_until && new Date(attempt.blocked_until).getTime() > now) {
-      await client.query('COMMIT');
-      return false;
-    }
+      if (attempt.blocked_until && new Date(attempt.blocked_until).getTime() > currentTime) {
+        await client.query('COMMIT');
+        return false;
+      }
 
-    const expiredWindow = now - new Date(attempt.window_started_at).getTime() >= loginWindowMs;
-    if (expiredWindow) {
-      await client.query(`
+      const expiredWindow = currentTime - new Date(attempt.window_started_at).getTime() >= loginWindowMs;
+      if (expiredWindow) {
+        await client.query(`
         UPDATE admin_login_attempts
         SET attempt_count = 1, window_started_at = now(), blocked_until = NULL, updated_at = now()
         WHERE bucket_hash = $1
       `, [bucketHash]);
-      await client.query('COMMIT');
-      return true;
-    }
+        await client.query('COMMIT');
+        return true;
+      }
 
-    if (attempt.attempt_count >= loginAttemptLimit) {
-      await client.query(`
+      if (attempt.attempt_count >= loginAttemptLimit) {
+        await client.query(`
         UPDATE admin_login_attempts
         SET blocked_until = window_started_at + interval '15 minutes', updated_at = now()
         WHERE bucket_hash = $1
       `, [bucketHash]);
-      await client.query('COMMIT');
-      return false;
-    }
+        await client.query('COMMIT');
+        return false;
+      }
 
-    await client.query(`
+      await client.query(`
       UPDATE admin_login_attempts
       SET attempt_count = attempt_count + 1, updated_at = now()
       WHERE bucket_hash = $1
     `, [bucketHash]);
-    await client.query('COMMIT');
-    return true;
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
+      await client.query('COMMIT');
+      return true;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
 }
+
+const allowLoginAttempt = createLoginAttemptLimiter();
 
 async function renderLogin(response, status, message) {
   const token = randomBytes(32).toString('hex');
@@ -174,8 +186,11 @@ async function login(request, response) {
     const emailKeys = getEmailCryptoKeys();
     const emailHash = lookupAdminEmail(email, emailKeys.lookupKey);
     const configuredAdminHash = lookupAdminEmail(adminEmail, emailKeys.lookupKey);
-    const bucketHash = getRateBucket(request);
-    if (!bucketHash || !(await allowLoginAttempt(bucketHash))) {
+    const bucketHash = getLoginRateBucket(request, { accountHash: configuredAdminHash });
+    if (!bucketHash) {
+      return renderLogin(response, 503, 'No fue posible verificar el origen de la solicitud. Inténtalo más tarde.');
+    }
+    if (!(await allowLoginAttempt(bucketHash))) {
       return renderLogin(response, 429, 'Se alcanzó el límite de intentos. Espera 15 minutos antes de volver a intentarlo.');
     }
 
@@ -292,11 +307,12 @@ export function auditAdminAction(client, actorId, action, entityType, entityId, 
   `, [actorId, action, entityType, String(entityId), JSON.stringify(details)]);
 }
 
-export async function withAdminTransaction(response, operation) {
+export async function withAdminTransaction(response, operation, { onCommitAttempt } = {}) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const result = await operation(client);
+    onCommitAttempt?.();
     await client.query('COMMIT');
     return result;
   } catch (error) {

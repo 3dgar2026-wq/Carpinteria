@@ -1,8 +1,24 @@
-import app from './app.js';
 import { pool } from './db.js';
+import { MediaStorageConfigurationError, validateMediaStorageConfiguration } from './media-storage-config.js';
 
 if (!process.env.DATABASE_URL) {
   console.error('Falta DATABASE_URL. Copia .env.example a .env y configura PostgreSQL.');
+  process.exit(1);
+}
+
+try {
+  validateMediaStorageConfiguration(process.env);
+} catch (error) {
+  if (error instanceof MediaStorageConfigurationError) console.error(error.message);
+  else console.error('No se pudo validar la configuración de almacenamiento multimedia.');
+  process.exit(1);
+}
+
+let app;
+try {
+  ({ default: app } = await import('./app.js'));
+} catch {
+  console.error('No se pudo preparar la aplicación con la configuración multimedia indicada.');
   process.exit(1);
 }
 

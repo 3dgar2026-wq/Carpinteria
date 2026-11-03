@@ -1,6 +1,6 @@
-import { query } from './db.js';
+import { query as defaultQuery } from './db.js';
 
-export async function hasVerifiablePublicMediaColumns() {
+export async function hasVerifiablePublicMediaColumns(query = defaultQuery) {
   const { rows } = await query(`
     SELECT count(*)::integer AS available
     FROM information_schema.columns

@@ -1,4 +1,5 @@
 import express from 'express';
+import { randomUUID } from 'node:crypto';
 import { pool, query } from './db.js';
 import { validatePricingRule, InvalidPricingRuleError } from './pricing.js';
 import { normalizeFixedDimensions } from './fixed-dimensions.js';
@@ -7,10 +8,18 @@ import {
   maxMediaBatchFiles,
   maxMediaFileBytes,
   maxVideoFileBytes,
+  getStoredVideoSize,
+  assertStoredMediaKeyAllowed,
+  isCloudinaryStorageKey,
+  makeMediaIdempotencyKey,
   openStoredImage,
   openStoredVideo,
   removeStoredImage,
   removeStoredVideo,
+  restoreStoredImage,
+  restoreStoredVideo,
+  snapshotStoredImage,
+  snapshotStoredVideo,
   storeImage,
   storeVideo,
   storedImageMatches,
@@ -98,6 +107,13 @@ function mediaSizeLabel(bytes) {
   return `${Math.ceil(bytes / 1024)} KB`;
 }
 
+function logMediaFailure(operation, error) {
+  const code = typeof error?.code === 'string' && /^[A-Z0-9_]{1,40}$/.test(error.code)
+    ? ` código=${error.code}`
+    : '';
+  console.error(`Falló la operación multimedia (${operation}).${code}`);
+}
+
 function slugFromProductName(name) {
   const slug = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 120);
@@ -121,8 +137,7 @@ async function sendMediaFile(response, storageKey, mimeType, cacheControl) {
 }
 
 async function streamVideo(request, response, storageKey, mimeType) {
-  const { stream: probe, size } = await openStoredVideo(storageKey);
-  probe.destroy();
+  const size = await getStoredVideoSize(storageKey);
   const header = request.get('Range');
   let range = null;
   if (header) {
@@ -514,8 +529,13 @@ router.get('/media/:id/content', async (request, response) => {
       return response.status(404).json({ error: 'No se encontró la fotografía.' });
     }
     await sendMediaFile(response, rows[0].storage_key, rows[0].mime_type, 'private, no-store');
-  } catch {
-    if (!response.headersSent) response.status(404).json({ error: 'No se encontró la fotografía.' });
+  } catch (error) {
+    if (!response.headersSent) {
+      const unavailable = error?.code && error.code !== 'ENOENT';
+      response.status(unavailable ? 503 : 404).json({
+        error: unavailable ? 'No fue posible recuperar la fotografía.' : 'No se encontró la fotografía.',
+      });
+    }
   }
 });
 
@@ -582,7 +602,9 @@ router.post('/media/upload/:batchId', express.raw({ type: 'application/octet-str
     if (countRows[0].total >= maxMediaBatchFiles) {
       throw new AdminInputError(`Un lote puede tener como máximo ${maxMediaBatchFiles} fotografías.`);
     }
-    storageKey = await storeImage(request.body, format);
+    storageKey = await storeImage(request.body, format, {
+      idempotencyKey: makeMediaIdempotencyKey('image', batchId, originalFilename, format.mimeType, request.body),
+    });
     const { rows } = await client.query(`
       INSERT INTO media_assets (
         storage_key, media_kind, mime_type, original_filename,
@@ -600,7 +622,11 @@ router.post('/media/upload/:batchId', express.raw({ type: 'application/octet-str
     response.status(201).json({ media: { ...media, adminUrl: `/api/admin/media/${media.id}/content` } });
   } catch (error) {
     if (client) await client.query('ROLLBACK').catch(() => {});
-    if (storageKey && !commitAttempted) await removeStoredImage(storageKey).catch(() => {});
+    if (storageKey && !commitAttempted) {
+      try { await removeStoredImage(storageKey); }
+      catch (cleanupError) { logMediaFailure('limpieza de carga interrumpida', cleanupError); }
+    }
+    if (!(error instanceof AdminInputError)) logMediaFailure('carga de imagen', error);
     if (error instanceof AdminInputError) return response.status(error.status).json({ error: error.message });
     if (error.code === '23503' || error.code === '23514') {
       return response.status(400).json({ error: 'No se pudo guardar la fotografía con los datos actuales.' });
@@ -612,16 +638,18 @@ router.post('/media/upload/:batchId', express.raw({ type: 'application/octet-str
 });
 
 router.delete('/media/:id', async (request, response) => {
+  const remoteBackups = [];
   const result = await withAdminTransaction(response, async (client) => {
     const id = validatedId(request.params.id, 'La fotografía');
     const { rows } = await client.query(`
-      SELECT id, media_kind, classification_status, storage_key, original_filename
+      SELECT id, media_kind, classification_status, storage_key, original_filename, mime_type
       FROM media_assets
       WHERE id = $1
       FOR UPDATE
     `, [id]);
     const media = rows[0];
     if (!media || media.media_kind !== 'image') throw new AdminInputError('No se encontró la fotografía pendiente.', 404);
+    assertStoredMediaKeyAllowed(media.storage_key);
     const { rows: links } = await client.query(`
       SELECT p.name, p.is_published
       FROM product_media pm
@@ -632,6 +660,18 @@ router.delete('/media/:id', async (request, response) => {
     if (links.length) {
       const productNames = links.map((link) => `“${link.name}”`).join(', ');
       throw new AdminInputError(`No se puede eliminar esta fotografía porque la utilizan estos trabajos: ${productNames}. Retírala de sus galerías primero.`, 409);
+    }
+
+    const isRemote = isCloudinaryStorageKey(media.storage_key);
+    if (isRemote) {
+      try {
+        const backup = await snapshotStoredImage(media.storage_key);
+        if (backup) remoteBackups.push({ storageKey: media.storage_key, bytes: backup.bytes });
+        await removeStoredImage(media.storage_key);
+      } catch (error) {
+        logMediaFailure('eliminación de imagen remota', error);
+        throw error;
+      }
     }
 
     await auditAdminAction(client, request.adminSession.id, 'media.deleted', 'media_asset', id, {
@@ -646,10 +686,16 @@ router.delete('/media/:id', async (request, response) => {
       id,
       storageKey: media.storage_key,
       originalFilename: media.original_filename,
-      removeFile: remainingReferences.length === 0,
+      removeFile: remainingReferences.length === 0 && !isRemote,
     };
   });
-  if (result === null) return;
+  if (result === null) {
+    for (const backup of remoteBackups) {
+      try { await restoreStoredImage(backup.storageKey, backup.bytes); }
+      catch (error) { logMediaFailure('restauración de imagen tras rollback', error); }
+    }
+    return;
+  }
   if (!result.removeFile) {
     return response.json({
       id: result.id,
@@ -660,7 +706,8 @@ router.delete('/media/:id', async (request, response) => {
   try {
     await removeStoredImage(result.storageKey);
     response.json({ id: result.id, message: `Se eliminó “${result.originalFilename}” de la biblioteca.` });
-  } catch {
+  } catch (error) {
+    logMediaFailure('eliminación de imagen local', error);
     response.json({
       id: result.id,
       warning: true,
@@ -944,6 +991,9 @@ router.put('/products/:id/media', async (request, response) => {
 });
 
 router.put('/products/:id/video', express.raw({ type: 'application/octet-stream', limit: maxVideoFileBytes, inflate: false }), async (request, response) => {
+  let productId;
+  try { productId = validatedId(request.params.id, 'El trabajo'); }
+  catch (error) { return response.status(error.status ?? 400).json({ error: error.message }); }
   const format = validateVideoBuffer(request.body);
   if (!format || request.body.length > maxVideoFileBytes) {
     return response.status(400).json({ error: `Selecciona un video MP4 o WebM válido de hasta ${mediaSizeLabel(maxVideoFileBytes)}.` });
@@ -951,14 +1001,18 @@ router.put('/products/:id/video', express.raw({ type: 'application/octet-stream'
   const originalFilename = safeOriginalFilename(request.get('X-Original-Filename'));
   let storageKey;
   try {
-    storageKey = await storeVideo(request.body, format);
-  } catch {
+    storageKey = await storeVideo(request.body, format, {
+      idempotencyKey: makeMediaIdempotencyKey('video', productId, randomUUID(), originalFilename, format.mimeType, request.body),
+    });
+  } catch (error) {
+    logMediaFailure('carga de video', error);
     return response.status(503).json({ error: 'No fue posible guardar el video. Puedes volver a intentarlo.' });
   }
 
-  let previousStorageKeys = [];
+  let previousLocalStorageKeys = [];
+  const remoteBackups = [];
+  let commitAttempted = false;
   const result = await withAdminTransaction(response, async (client) => {
-    const productId = validatedId(request.params.id, 'El trabajo');
     const { rows: productRows } = await client.query('SELECT id FROM products WHERE id = $1 FOR UPDATE', [productId]);
     if (!productRows.length) throw new AdminInputError('No se encontró el trabajo.', 404);
     const { rows: previousRows } = await client.query(`
@@ -969,6 +1023,23 @@ router.put('/products/:id/video', express.raw({ type: 'application/octet-stream'
       ORDER BY pm.sort_order, ma.id
       FOR UPDATE OF ma
     `, [productId]);
+    for (const previous of previousRows) {
+      assertStoredMediaKeyAllowed(previous.storage_key, true);
+      const { rows: otherReferences } = await client.query(
+        'SELECT 1 FROM product_media WHERE media_asset_id = $1 AND product_id <> $2 LIMIT 1',
+        [previous.id, productId],
+      );
+      if (!otherReferences.length && isCloudinaryStorageKey(previous.storage_key)) {
+        try {
+          const backup = await snapshotStoredVideo(previous.storage_key);
+          if (backup) remoteBackups.push({ storageKey: previous.storage_key, bytes: backup.bytes });
+          await removeStoredVideo(previous.storage_key);
+        } catch (error) {
+          logMediaFailure('reemplazo de video remoto', error);
+          throw error;
+        }
+      }
+    }
     const { rows: insertedRows } = await client.query(`
       INSERT INTO media_assets (
         storage_key, media_kind, mime_type, original_filename,
@@ -989,7 +1060,9 @@ router.put('/products/:id/video', express.raw({ type: 'application/octet-stream'
         )
         RETURNING storage_key
       `, [previous.id]);
-      if (removedRows[0]?.storage_key) previousStorageKeys.push(removedRows[0].storage_key);
+      if (removedRows[0]?.storage_key && !isCloudinaryStorageKey(removedRows[0].storage_key)) {
+        previousLocalStorageKeys.push(removedRows[0].storage_key);
+      }
     }
     await auditAdminAction(client, request.adminSession.id, 'product.video.updated', 'product', productId, {
       byteSize: request.body.length,
@@ -997,12 +1070,23 @@ router.put('/products/:id/video', express.raw({ type: 'application/octet-stream'
       replaced: previousRows.length > 0,
     });
     return { productId, mediaId: insertedRows[0].id, mimeType: format.mimeType };
-  });
+  }, { onCommitAttempt: () => { commitAttempted = true; } });
   if (result === null) {
-    await removeStoredVideo(storageKey).catch(() => {});
+    for (const backup of remoteBackups) {
+      try { await restoreStoredVideo(backup.storageKey, backup.bytes); }
+      catch (error) { logMediaFailure('restauración de video tras rollback', error); }
+    }
+    if (!commitAttempted) {
+      try { await removeStoredVideo(storageKey); }
+      catch (error) { logMediaFailure('limpieza de video interrumpido', error); }
+    } else {
+      logMediaFailure('limpieza aplazada por resultado de confirmación incierto', { code: 'MEDIA_COMMIT_OUTCOME_UNKNOWN' });
+    }
     return;
   }
-  await Promise.all(previousStorageKeys.map((key) => removeStoredVideo(key).catch(() => {})));
+  await Promise.all(previousLocalStorageKeys.map((key) => removeStoredVideo(key).catch((error) => {
+    logMediaFailure('limpieza de video local', error);
+  })));
   response.status(201).json({
     video: { id: result.mediaId, mimeType: result.mimeType, url: `/media/video/${result.mediaId}` },
     message: 'Video guardado y asociado al trabajo.',
@@ -1010,6 +1094,7 @@ router.put('/products/:id/video', express.raw({ type: 'application/octet-stream'
 });
 
 router.delete('/products/:id/video', async (request, response) => {
+  const remoteBackups = [];
   const result = await withAdminTransaction(response, async (client) => {
     const productId = validatedId(request.params.id, 'El trabajo');
     const { rows: productRows } = await client.query('SELECT id FROM products WHERE id = $1 FOR UPDATE', [productId]);
@@ -1025,6 +1110,21 @@ router.delete('/products/:id/video', async (request, response) => {
     if (!rows.length) throw new AdminInputError('Este trabajo no tiene un video asociado.', 404);
     const storageKeys = [];
     for (const video of rows) {
+      assertStoredMediaKeyAllowed(video.storage_key, true);
+      const { rows: otherReferences } = await client.query(
+        'SELECT 1 FROM product_media WHERE media_asset_id = $1 AND product_id <> $2 LIMIT 1',
+        [video.id, productId],
+      );
+      if (!otherReferences.length && isCloudinaryStorageKey(video.storage_key)) {
+        try {
+          const backup = await snapshotStoredVideo(video.storage_key);
+          if (backup) remoteBackups.push({ storageKey: video.storage_key, bytes: backup.bytes });
+          await removeStoredVideo(video.storage_key);
+        } catch (error) {
+          logMediaFailure('eliminación de video remoto', error);
+          throw error;
+        }
+      }
       await client.query('DELETE FROM product_media WHERE product_id = $1 AND media_asset_id = $2', [productId, video.id]);
       const { rows: removedRows } = await client.query(`
         DELETE FROM media_assets ma
@@ -1033,7 +1133,9 @@ router.delete('/products/:id/video', async (request, response) => {
         )
         RETURNING storage_key
       `, [video.id]);
-      if (removedRows[0]?.storage_key) storageKeys.push(removedRows[0].storage_key);
+      if (removedRows[0]?.storage_key && !isCloudinaryStorageKey(removedRows[0].storage_key)) {
+        storageKeys.push(removedRows[0].storage_key);
+      }
     }
     await auditAdminAction(client, request.adminSession.id, 'product.video.removed', 'product', productId, {
       mediaIds: rows.map((video) => video.id),
@@ -1041,8 +1143,15 @@ router.delete('/products/:id/video', async (request, response) => {
     });
     return { storageKeys };
   });
-  if (result !== null) {
-    await Promise.all(result.storageKeys.map((key) => removeStoredVideo(key).catch(() => {})));
+  if (result === null) {
+    for (const backup of remoteBackups) {
+      try { await restoreStoredVideo(backup.storageKey, backup.bytes); }
+      catch (error) { logMediaFailure('restauración de video tras rollback', error); }
+    }
+  } else {
+    await Promise.all(result.storageKeys.map((key) => removeStoredVideo(key).catch((error) => {
+      logMediaFailure('eliminación de video local', error);
+    })));
     response.json({ message: 'Video retirado del trabajo. Las fotografías no se modificaron.' });
   }
 });
@@ -1063,8 +1172,13 @@ router.get('/products/:id/video/content', async (request, response) => {
       return response.status(404).json({ error: 'No se encontró el video del trabajo.' });
     }
     return streamVideo(request, response, rows[0].storage_key, rows[0].mime_type);
-  } catch {
-    if (!response.headersSent) response.status(404).json({ error: 'No se encontró el video del trabajo.' });
+  } catch (error) {
+    if (!response.headersSent) {
+      const unavailable = error?.code && error.code !== 'ENOENT';
+      response.status(unavailable ? 503 : 404).json({
+        error: unavailable ? 'No fue posible recuperar el video del trabajo.' : 'No se encontró el video del trabajo.',
+      });
+    }
   }
 });
 

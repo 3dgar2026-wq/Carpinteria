@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: carpinteria
+    runtime: node
+    buildCommand: npm ci
+    startCommand: node server/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 24.22.2
+      - key: MEDIA_STORAGE_PROVIDER
+        value: cloudinary
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_RATE_LIMIT_KEY
+        sync: false
+      - key: EMAIL_ENCRYPTION_KEY
+        sync: false
+      - key: EMAIL_LOOKUP_KEY
+        sync: false
+      - key: PASSWORD_RECOVERY_KEY
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_APP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
+        sync: false

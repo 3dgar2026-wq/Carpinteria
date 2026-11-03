@@ -84,12 +84,18 @@ test('static guard: public catalog and existing administrative resource routes r
   }
 });
 
-test('static guard: login limiter retains the five-attempt, fifteen-minute policy without trusting forwarded headers', async () => {
+test('static guard: login and recovery do not trust forwarded headers and keep proxy trust disabled', async () => {
   const auth = await read('server/admin-auth.js');
   const app = await read('server/app.js');
+  const recovery = await read('server/admin-password-recovery.js');
+  const ipResolver = await read('server/client-ip.js');
 
   assert.match(auth, /const loginWindowMs = 15 \* 60 \* 1000/);
   assert.match(auth, /const loginAttemptLimit = 5/);
-  assert.match(auth, /request\.socket\.remoteAddress/);
-  assert.doesNotMatch(app, /trust proxy/);
+  assert.match(auth, /resolveClientIp\(request, env\)/);
+  assert.match(recovery, /resolveClientIp\(request, env\)/);
+  assert.match(auth, /login-owner:/);
+  assert.match(recovery, /render-service:/);
+  assert.doesNotMatch(ipResolver, /cf-connecting-ip|x-forwarded-for/i);
+  assert.match(app, /app\.set\('trust proxy', false\)/);
 });

@@ -135,8 +135,9 @@ function makeResponse() {
   };
 }
 
-function setup({ sendEmail = async () => {}, hash = hashPassword, logger = console } = {}) {
+function setup({ sendEmail = async () => {}, hash = hashPassword, logger = console, envOverrides = {} } = {}) {
   const env = makeEnvironment();
+  Object.assign(env, envOverrides);
   const pool = new FakeRecoveryPool(env);
   const handlers = createAdminPasswordRecoveryHandlers({ pool, sendEmail, hashPassword: hash, env, logger });
   const request = (body, cookie = '') => ({
@@ -230,6 +231,39 @@ test('request limits apply to an account and to repeated requests from one IP', 
   }
   const ipBucket = [...ipState.pool.rateBuckets.entries()].find(([key]) => key.startsWith('request-ip:'))?.[1];
   assert.equal(ipBucket?.count, 11);
+});
+
+test('Render recovery rate bucket ignores spoofed IP headers and applies the per-operation service cap', async () => {
+  const state = setup({ envOverrides: { RENDER: 'true', RENDER_SERVICE_TYPE: 'web' } });
+  for (let index = 0; index < 11; index += 1) {
+    const request = state.request({ email: `unrecognized-${index}@example.invalid` });
+    request.headers['cf-connecting-ip'] = `198.51.100.${index + 1}`;
+    request.headers['x-forwarded-for'] = `203.0.113.${index + 1}`;
+    await state.handlers.requestCode(request, makeResponse());
+  }
+  const ipBuckets = [...state.pool.rateBuckets.entries()].filter(([key]) => key.startsWith('request-ip:'));
+  assert.equal(ipBuckets.length, 1);
+  assert.equal(ipBuckets[0][1].count, 11);
+
+  const otherClient = state.request({ email: 'unrecognized-other@example.invalid' });
+  otherClient.headers['cf-connecting-ip'] = 'forged,duplicate';
+  otherClient.headers['x-forwarded-for'] = '198.51.100.20';
+  await state.handlers.requestCode(otherClient, makeResponse());
+  const separatedBuckets = [...state.pool.rateBuckets.entries()].filter(([key]) => key.startsWith('request-ip:'));
+  assert.equal(separatedBuckets.length, 1);
+  assert.equal(separatedBuckets[0][1].count, 12);
+});
+
+test('Render recovery uses its stable service bucket when no client IP can be trusted', async () => {
+  const state = setup({ envOverrides: { RENDER: 'true', RENDER_SERVICE_TYPE: 'web' } });
+  const request = state.request({ email: 'unrecognized@example.invalid' });
+  request.headers['x-forwarded-for'] = '198.51.100.20';
+  const response = makeResponse();
+  await state.handlers.requestCode(request, response);
+  assert.equal(response.statusCode, 202);
+  const ipBuckets = [...state.pool.rateBuckets.entries()].filter(([key]) => key.startsWith('request-ip:'));
+  assert.equal(ipBuckets.length, 1);
+  assert.equal(ipBuckets[0][1].count, 1);
 });
 
 test('an unknown email receives the same response and SMTP failure does not leave a usable code', async () => {

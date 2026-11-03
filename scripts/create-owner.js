@@ -4,31 +4,66 @@ import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import pg from 'pg';
 import { hashPassword } from '../server/passwords.js';
-import { encryptAdminEmail, getEmailCryptoKeys, lookupAdminEmail } from '../server/admin-email-crypto.js';
+import {
+  encryptAdminEmail,
+  getEmailCryptoKeys,
+  getRecoveryCodeKey,
+  lookupAdminEmail,
+} from '../server/admin-email-crypto.js';
+import { isValidConfiguredAdminEmail, validateOwnerBootstrapInput } from './owner-bootstrap-validation.js';
 
 const { Client } = pg;
-const expectedDatabase = 'carpinteria_db';
 const args = process.argv.slice(2);
+const expectedDatabase = args[1];
 const email = (process.env.ADMIN_EMAIL ?? '').trim().toLowerCase();
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-if (args.length !== 2 || args[0] !== '--database' || args[1] !== expectedDatabase) {
-  console.error('Uso: npm run admin:create-owner -- --database carpinteria_db');
+if (args.length !== 2 || args[0] !== '--database' || !/^[a-z_][a-z0-9_]{0,62}$/i.test(expectedDatabase ?? '')) {
+  console.error('Uso: npm run admin:create-owner -- --database <nombre-exacto>');
   process.exit(1);
 }
-if (!process.env.DATABASE_URL) {
-  console.error('Falta DATABASE_URL. Configura el entorno antes de crear al propietario.');
+const directConnectionString = process.env.DATABASE_URL_UNPOOLED;
+const applicationConnectionString = process.env.DATABASE_URL;
+const connectionString = directConnectionString || applicationConnectionString;
+
+function isPooledConnectionString(value) {
+  try {
+    return /-pooler\./i.test(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+}
+
+if (!connectionString) {
+  console.error('Falta DATABASE_URL_UNPOOLED o DATABASE_URL. Configura el entorno antes de crear al propietario.');
   process.exit(1);
 }
-if (!emailPattern.test(email) || email.length > 254) {
+if ((directConnectionString && isPooledConnectionString(directConnectionString))
+  || (!directConnectionString && isPooledConnectionString(applicationConnectionString))) {
+  console.error('La creación del propietario requiere la conexión directa de Neon en DATABASE_URL_UNPOOLED.');
+  process.exit(1);
+}
+if (!isValidConfiguredAdminEmail(email)) {
   console.error('Define un ADMIN_EMAIL válido en el entorno antes de crear la cuenta.');
   process.exit(1);
 }
 let emailKeys;
+let recoveryKey;
 try {
   emailKeys = getEmailCryptoKeys();
+  recoveryKey = getRecoveryCodeKey();
 } catch {
-  console.error('Define EMAIL_ENCRYPTION_KEY y EMAIL_LOOKUP_KEY antes de crear la cuenta.');
+  console.error('Configura correctamente las claves de correo y recuperación antes de crear la cuenta.');
+  process.exit(1);
+}
+const configuredRateKey = process.env.ADMIN_RATE_LIMIT_KEY ?? '';
+if (!/^[a-f0-9]{64,}$/i.test(configuredRateKey) || configuredRateKey.length % 2 !== 0) {
+  console.error('Define ADMIN_RATE_LIMIT_KEY como una clave hexadecimal válida de al menos 32 bytes.');
+  process.exit(1);
+}
+const rateLimitKey = Buffer.from(configuredRateKey, 'hex');
+if (rateLimitKey.equals(emailKeys.encryptionKey) || rateLimitKey.equals(emailKeys.lookupKey)
+  || rateLimitKey.equals(recoveryKey)) {
+  console.error('ADMIN_RATE_LIMIT_KEY debe ser independiente de las claves de correo y recuperación.');
   process.exit(1);
 }
 const encryptedEmail = encryptAdminEmail(email, emailKeys);
@@ -95,9 +130,9 @@ try {
   process.exit(1);
 }
 
-if (!name || name.length > 160 || !emailPattern.test(email) || email.length > 254
-  || Array.from(password).length < 12 || Buffer.byteLength(password) > 256) {
-  console.error('Revisa ADMIN_EMAIL, el nombre y la longitud de la contraseña. No se creó ninguna cuenta.');
+const inputDiagnostics = validateOwnerBootstrapInput({ name, email, password });
+if (inputDiagnostics.length > 0) {
+  console.error(`No se creó ninguna cuenta. Validaciones: ${inputDiagnostics.join(', ')}.`);
   process.exit(1);
 }
 const passwordBuffer = Buffer.from(password);
@@ -107,14 +142,15 @@ if (passwordBuffer.length !== confirmationBuffer.length || !timingSafeEqual(pass
   process.exit(1);
 }
 
-const client = new Client({ connectionString: process.env.DATABASE_URL });
+const client = new Client({ connectionString });
 let stage = 'connection';
 try {
   await client.connect();
 
   stage = 'database-check';
-  const { rows: databaseRows } = await client.query('SELECT current_database() AS name');
-  if (databaseRows[0]?.name !== expectedDatabase) throw new Error('Base de datos distinta');
+  const { rows: databaseRows } = await client.query('SELECT current_database() AS name, current_schema() AS schema_name');
+  if (databaseRows[0]?.name !== expectedDatabase) throw Object.assign(new Error('Database mismatch'), { code: 'DATABASE_MISMATCH' });
+  if (databaseRows[0]?.schema_name !== 'public') throw Object.assign(new Error('Schema mismatch'), { code: 'SCHEMA_MISMATCH' });
 
   stage = 'transaction-start';
   await client.query('BEGIN');
@@ -127,24 +163,48 @@ try {
            to_regclass('public.audit_log') AS audit_log,
            to_regclass('public.admin_sessions') AS admin_sessions,
             to_regclass('public.admin_login_attempts') AS admin_login_attempts,
-            to_regclass('public.admin_password_recoveries') AS password_recoveries
+            to_regclass('public.admin_password_recoveries') AS password_recoveries,
+            to_regclass('public.admin_password_recovery_rate_limits') AS recovery_rate_limits,
+            to_regclass('public.schema_migrations') AS schema_migrations
   `);
   if (!schemaRows[0]?.users || !schemaRows[0]?.roles || !schemaRows[0]?.audit_log
     || !schemaRows[0]?.admin_sessions || !schemaRows[0]?.admin_login_attempts
-    || !schemaRows[0]?.password_recoveries) {
-    throw new Error('Esquema incompleto');
+    || !schemaRows[0]?.password_recoveries || !schemaRows[0]?.recovery_rate_limits
+    || !schemaRows[0]?.schema_migrations) {
+    throw Object.assign(new Error('Schema incomplete'), { code: 'BOOTSTRAP_SCHEMA_INCOMPLETE' });
   }
+
+  stage = 'migration-check';
+  const expectedMigrations = [
+    '001_initial_schema.sql',
+    '002_catalog_configuration.sql',
+    '003_admin_auth.sql',
+    '004_category_measurement_templates.sql',
+    '005_private_media_inbox.sql',
+    '006_admin_email_encryption_password_recovery.sql',
+  ];
+  const { rows: migrationRows } = await client.query(
+    'SELECT name FROM public.schema_migrations WHERE name = ANY($1::text[])',
+    [expectedMigrations],
+  );
+  if (migrationRows.length !== expectedMigrations.length) {
+    throw Object.assign(new Error('Required migrations missing'), { code: 'REQUIRED_MIGRATIONS_MISSING' });
+  }
+
+  stage = 'existing-users-check';
+  const { rows: userCountRows } = await client.query('SELECT count(*)::integer AS total FROM public.users');
+  if (userCountRows[0]?.total !== 0) throw Object.assign(new Error('Users already exist'), { code: 'USERS_ALREADY_EXIST' });
 
   stage = 'email-check';
   const { rows: emailRows } = await client.query(
     'SELECT 1 FROM users WHERE email_lookup_hmac = $1 LIMIT 1',
     [emailLookupHash],
   );
-  if (emailRows.length) throw new Error('El correo ya existe');
+  if (emailRows.length) throw Object.assign(new Error('Configured admin email already exists'), { code: 'ADMIN_EMAIL_ALREADY_EXISTS' });
 
   stage = 'owner-role-check';
   const { rows: roleRows } = await client.query("SELECT id FROM roles WHERE code = 'owner'");
-  if (!roleRows.length) throw new Error('No existe el rol propietario');
+  if (!roleRows.length) throw Object.assign(new Error('Owner role missing'), { code: 'OWNER_ROLE_MISSING' });
 
   stage = 'password-hash';
   const hash = await hashPassword(password);

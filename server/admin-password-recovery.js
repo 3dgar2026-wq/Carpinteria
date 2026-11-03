@@ -1,5 +1,6 @@
 import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { pool as defaultPool } from './db.js';
+import { resolveClientIp } from './client-ip.js';
 import { hashPassword as defaultHashPassword } from './passwords.js';
 import {
   decryptAdminEmail,
@@ -78,7 +79,16 @@ async function incrementRateBucket(client, scope, bucketHash, maxAttempts) {
 }
 
 async function allowRecoveryAttempt(client, scope, emailHash, request, env, limits) {
-  const ipHash = hmacRecoveryIp(request.socket.remoteAddress ?? 'unknown', recoveryRateKey(env));
+  const clientIp = resolveClientIp(request, env);
+  let clientBucketIdentity = clientIp;
+  if (!clientBucketIdentity && env.RENDER === 'true' && env.RENDER_SERVICE_TYPE === 'web') {
+    // Public and private Render requests share a listener, so forwarded IP
+    // headers are forgeable from the private network. Use a stable service
+    // bucket at the existing IP threshold instead of trusting those headers.
+    clientBucketIdentity = `render-service:${scope}`;
+  }
+  if (!clientBucketIdentity) throw new Error('No se pudo determinar un origen seguro para el límite de intentos.');
+  const ipHash = hmacRecoveryIp(clientBucketIdentity, recoveryRateKey(env));
   const globalHash = hmacRecoveryIp(`${scope}-global-recovery-limit`, getRecoveryCodeKey(env));
   await client.query("DELETE FROM admin_password_recovery_rate_limits WHERE updated_at < now() - interval '1 hour'");
   if (!(await incrementRateBucket(client, `${scope}-global`, globalHash, limits.global))) return false;

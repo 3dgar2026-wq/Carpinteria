@@ -6,7 +6,7 @@ Esta aplicación sirve un catálogo público de trabajos de carpintería y un pa
 
 ## Arquitectura
 
-- Aplicación monolítica modular: Node.js 20+, Express y PostgreSQL.
+- Aplicación monolítica modular: Node.js 24.22.2, Express y PostgreSQL.
 - HTML, CSS y JavaScript del navegador sin framework de frontend mientras no exista una necesidad concreta.
 - Mantén separadas las rutas HTTP, el acceso a datos, la lógica de negocio y los archivos estáticos.
 - Los cambios de esquema se hacen con migraciones SQL reproducibles en `db/migrations/`.

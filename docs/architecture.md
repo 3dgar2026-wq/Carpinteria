@@ -2,25 +2,42 @@
 
 ## Base técnica
 
-El directorio de trabajo estaba vacío y no contenía un repositorio ni tecnologías existentes. Para esta base se adopta un monolito modular con Node.js 20, Express y PostgreSQL. El navegador utiliza HTML, CSS y JavaScript nativos, servidos por el mismo proceso. Se evita introducir un framework de cliente o microservicios sin una necesidad demostrada.
+La aplicación existente es un monolito modular con Node.js `24.22.2`, Express 5 y PostgreSQL. La versión de Node está fijada en `.node-version` y en `package.json`; Render usa `render.yaml`. El navegador usa HTML, CSS y JavaScript nativos. `server/` contiene HTTP, autenticación, lógica y almacenamiento; `db/migrations/` contiene cambios reproducibles; `public/` contiene las interfaces.
 
-`server/` contiene la aplicación HTTP, configuración de seguridad y rutas; `scripts/` ejecuta migraciones; `db/migrations/` versiona el modelo; `public/` contiene el catálogo y la interfaz administrativa; `docs/` mantiene las decisiones de arquitectura y diseño.
+## Persistencia y migraciones
 
-## Persistencia inicial
+El proyecto conserva seis migraciones oficiales, aplicadas en el entorno Neon confirmado:
 
-La migración inicial prepara roles, usuarios, categorías jerárquicas, trabajos, metadatos multimedia y su relación con trabajos, configuración del negocio y bitácora. No crea cuentas, contenido comercial ni valores de configuración ficticios. Los archivos multimedia se almacenarán posteriormente en un proveedor persistente; la base de datos conserva sus referencias y metadatos.
+1. `001_initial_schema.sql`
+2. `002_catalog_configuration.sql`
+3. `003_admin_auth.sql`
+4. `004_category_measurement_templates.sql`
+5. `005_private_media_inbox.sql`
+6. `006_admin_email_encryption_password_recovery.sql`
 
-El ejecutor registra las migraciones aplicadas en `schema_migrations` y ejecuta cada archivo dentro de una transacción. Se requiere `DATABASE_URL` para iniciar el servidor y aplicar migraciones. Las migraciones `002_catalog_configuration.sql` y `004_category_measurement_templates.sql` agregan de forma aditiva la configuración opcional de medidas y reglas: cada categoría puede guardar una plantilla JSONB y cada producto conserva su propia copia en `measurement_config`. Las dimensiones fijas del producto reutilizan la columna JSONB `products.dimensions` con un formato versionado independiente; no son entradas del cliente ni intervienen en el cálculo de precios. `003_admin_auth.sql` agrega sesiones de administración y limitación persistente de intentos de acceso. `GET /api/catalog` expone solo la configuración de medidas para cotizar y las dimensiones fijas validadas del producto, no las plantillas ni reglas de precio. `POST /api/catalog/:id/estimate` valida medidas y evalúa las reglas en el servidor sin devolverlas al navegador. Las cotizaciones se preparan localmente; todavía no se persisten ni se envían. La API pública solo sirve imágenes relacionadas con un producto publicado y habilitadas para mostrarse; no expone claves internas de almacenamiento.
+Estas migraciones definen doce tablas de aplicación: `roles`, `users`, `categories`, `products`, `media_assets`, `product_media`, `business_settings`, `audit_log`, `admin_sessions`, `admin_login_attempts`, `admin_password_recoveries` y `admin_password_recovery_rate_limits`. El migrador crea además `schema_migrations`, para trece tablas públicas esperadas en total. Las migraciones no crean un catálogo de negocio. La lista se deriva estáticamente del SQL; no se consultó Neon durante esta revisión.
 
-El panel utiliza contraseñas derivadas con scrypt, sesiones aleatorias cuya huella se guarda en PostgreSQL, autorización por el correo único configurado en `ADMIN_EMAIL` y por rol `owner`/`administrator`, protección CSRF y cookies `HttpOnly`/`SameSite=Strict` (con `Secure` en producción). Cada solicitud vuelve a comprobar que la cuenta activa sigue coincidiendo con el correo configurado, y rechaza el acceso si ese correo aparece duplicado ignorando mayúsculas/minúsculas. El propietario se crea mediante un comando interactivo que usa ese correo, sin credenciales predeterminadas. Las operaciones de categorías, trabajos, publicación, fotografías y revocación de sesiones quedan registradas en `audit_log`. La limitación persistente de intentos se identifica con HMAC a partir de `ADMIN_RATE_LIMIT_KEY` y la dirección de conexión; la aplicación no confía en encabezados de proxy de forma predeterminada. Las fotografías se cargan a una bandeja privada y quedan fuera de `public`; una acción explícita permite asociarlas a un producto, y otra controla si cada imagen se muestra en la tienda. La migración 005 agrega únicamente metadatos de clasificación y visibilidad; las asociaciones siguen usando `product_media`. El almacenamiento local predeterminado es `var/media` y producción debe configurarlo en un volumen persistente. No hay un procesador de imágenes instalado: la bandeja pagina y usa carga diferida, pero por ahora sirve los archivos originales.
+La migración inicial crea los roles `owner` y `administrator`. El código actual solo permite autenticación, sesiones y recuperación al usuario activo con rol `owner` y correo que coincide con `ADMIN_EMAIL`. No hay flujo funcional de administración de usuarios ni permisos para iniciar como `administrator`; el rol no se habilita aquí.
+
+Las migraciones se aplican mediante tarea operativa controlada, nunca durante el arranque. `DATABASE_URL` sirve al runtime; `DATABASE_URL_UNPOOLED` se reserva para migraciones y tareas de mantenimiento cuando corresponda. El migrador detecta el nombre de base, objetos existentes, ledger y respaldo antes de continuar. Las seis migraciones están aplicadas en Neon; no se ejecutó ninguna migración en esta intervención.
+
+## Catálogo, autenticación y multimedia
+
+El catálogo público solo muestra productos publicados, categorías activas y medios relacionados que estén marcados como públicos. El administrador usa sesiones aleatorias persistidas como hash, CSRF, contraseñas scrypt y cookies `HttpOnly`, `SameSite=Strict` y `Secure` en producción. Los límites se guardan en PostgreSQL con HMAC. El rol `administrator` permanece sembrado pero no admitido por las consultas owner-only.
+
+La recuperación requiere las claves criptográficas existentes y SMTP configurado. El proveedor actual solo admite Gmail SMTP con puerto 465 o 587, TLS mínimo 1.2, y `EMAIL_FROM` igual a `SMTP_USER`. No se ha configurado ni probado SMTP; por ello la recuperación no está lista para producción.
+
+En desarrollo y pruebas controladas puede usarse `MEDIA_STORAGE_PROVIDER=local` con archivos privados fuera de `public`. En producción se exige `MEDIA_STORAGE_PROVIDER=cloudinary` y las variables Cloudinary completas antes de que se importe la aplicación. Las cargas nuevas usan recursos autenticados; PostgreSQL conserva metadatos e identificadores, no binarios. Las referencias locales heredadas se rechazan en producción y no disparan una migración automática. Las rutas públicas verifican publicación, asociación y visibilidad; la biblioteca privada requiere sesión administrativa.
+
+Las eliminaciones de Cloudinary se intentan antes de borrar referencias y se restauran desde un respaldo temporal si falla la transacción. Ante un resultado ambiguo de `COMMIT`, se conserva el recurso remoto para evitar romper una referencia que pudo haberse confirmado; esto puede dejar un huérfano que requiere conciliación manual. La migración de archivos locales es explícita, idempotente y conserva las copias locales.
+
+Render es el servicio web y usa `npm ci`, `node server/index.js` y health check `/api/health`. Las solicitudes públicas pasan por Cloudflare y Render permite también tráfico privado al mismo listener; la aplicación no puede autenticar desde el proceso la procedencia de `CF-Connecting-IP`. En Render se ignoran `CF-Connecting-IP` y `X-Forwarded-For`, Express deja `trust proxy=false`, y los limitadores aplican buckets estables de cuenta/servicio. Esto evita falsificación de IP mediante encabezados, pero sustituye el bucket individual por IP por uno más restrictivo del servicio.
 
 ## Plan por etapas
 
-1. Inspección, documentación, tokens visuales, páginas base, salud de servidor y base de datos, y esquema inicial.
-2. Inicio/cierre de sesión con sesiones seguras, creación controlada del propietario, roles y permisos del lado servidor.
-3. CRUD de categorías y trabajos, carga multimedia validada y persistente, publicación y bitácora.
-4. Catálogo público, fichas y navegación conectadas a los datos publicados.
-5. Carrito local para cotización, cálculo orientativo y enlace de WhatsApp configurado por el propietario.
-6. Panel administrativo completo, usuarios/configuración, revisiones de seguridad, pruebas, despliegue y pendientes conocidos.
-
-El panel gestiona categorías, borradores de trabajos, reglas de medidas/precio, publicación explícita, una bandeja privada de fotografías pendientes y una biblioteca permanente de imágenes. La migración 005 agrega metadatos de nombre original, tamaño, lote de carga, clasificación y visibilidad, sin alterar asociaciones existentes. Las imágenes se reciben individualmente dentro de un flujo por lotes, se validan por firma y se guardan fuera del directorio público. `media_assets` conserva cada imagen hasta su eliminación explícita; `product_media` relaciona una imagen con uno o varios trabajos. Retirar una asociación o eliminar un trabajo conserva el registro y el archivo, y las fotos sin asociaciones vuelven a pendientes. La eliminación explícita desde la biblioteca se rechaza mientras existan trabajos relacionados y borra el archivo solo si ninguna fila referencia su clave. Los límites de carga se pueden ajustar con `MEDIA_MAX_FILE_BYTES` (5 MiB predeterminados, 20 MiB máximo) y `MEDIA_MAX_BATCH_FILES` (30 predeterminados, 50 máximo); `MEDIA_STORAGE_DIR` indica el directorio privado y por defecto es `var/media`. En producción ese directorio debe ser un volumen persistente. Sin un procesador de imágenes añadido, la bandeja y la biblioteca paginan y cargan de forma diferida las imágenes originales, pero no generan miniaturas optimizadas. La administración de usuarios todavía queda pendiente.
+1. Inspección, diseño y base técnica.
+2. Autenticación de propietario, sesiones y autorización de rutas.
+3. CRUD de categorías y trabajos, multimedia, publicación y auditoría.
+4. Catálogo público conectado a PostgreSQL.
+5. Cotizaciones y contacto mediante canal configurado.
+6. Administración ampliada, SMTP, pruebas aisladas, despliegue y validación.

@@ -7,6 +7,11 @@ coverage/
 .agents/skills/
 /var/media/
 
+# One-off integration checks can create temporary Cloudinary and Neon records.
+scripts/cloudinary-integration-check.js
+scripts/neon-cloudinary-integration-check.js
+test/cloudinary-integration-script.test.js
+
 # Local secrets and credentials
 *.pem
 *.key

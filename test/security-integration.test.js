@@ -181,6 +181,7 @@ if (configFailure) {
       '003_admin_auth.sql',
       '004_category_measurement_templates.sql',
       '005_private_media_inbox.sql',
+      '006_admin_email_encryption_password_recovery.sql',
     ];
     const migrations = await safeSql('SELECT name FROM schema_migrations ORDER BY name');
     assert.deepEqual(migrations.rows.map(({ name }) => name), expectedMigrations.slice().sort(),
@@ -203,7 +204,8 @@ if (configFailure) {
       ORDER BY c.relname
     `);
     const expectedTables = [
-      'admin_login_attempts', 'admin_sessions', 'audit_log', 'business_settings',
+      'admin_login_attempts', 'admin_password_recoveries', 'admin_password_recovery_rate_limits',
+      'admin_sessions', 'audit_log', 'business_settings',
       'categories', 'media_assets', 'product_media', 'products', 'roles',
       'schema_migrations', 'users',
     ];
@@ -241,6 +243,8 @@ if (configFailure) {
         (SELECT count(*) FROM business_settings) AS business_settings,
         (SELECT count(*) FROM admin_sessions) AS admin_sessions,
         (SELECT count(*) FROM admin_login_attempts) AS login_attempts,
+        (SELECT count(*) FROM admin_password_recoveries) AS password_recoveries,
+        (SELECT count(*) FROM admin_password_recovery_rate_limits) AS recovery_rate_limits,
         (SELECT count(*) FROM audit_log) AS audit_log
     `);
     assert.ok(Object.values(existingData.rows[0]).every((count) => Number(count) === 0),
@@ -275,11 +279,14 @@ if (configFailure) {
     assert.equal(privileges.can_read_users_direct, true, 'expected user lookup must be granted directly to runtime');
     assert.equal(privileges.expected_direct_table_privileges, true,
       'runtime must receive each required table privilege directly, without relying on inherited roles');
+    assert.equal(privileges.expected_direct_column_privileges, true,
+      'runtime must receive only the direct column updates required for password recovery');
     for (const allowed of [
       'can_read_roles', 'can_read_users', 'can_read_categories', 'can_read_products',
       'can_read_media_assets', 'can_read_product_media', 'can_manage_categories',
       'can_manage_products', 'can_manage_media_assets', 'can_manage_product_media',
       'can_insert_audit', 'can_manage_sessions', 'can_manage_login_attempts',
+      'can_manage_password_recoveries', 'can_manage_recovery_rate_limits', 'can_update_owner_password_fields',
       'can_use_categories_sequence', 'can_use_products_sequence',
       'can_use_media_assets_sequence', 'can_use_audit_sequence',
       'can_use_categories_sequence_direct', 'can_use_products_sequence_direct',
@@ -451,7 +458,10 @@ if (configFailure) {
               ('product_media', 'SELECT'), ('product_media', 'INSERT'), ('product_media', 'UPDATE'), ('product_media', 'DELETE'),
               ('audit_log', 'INSERT'),
               ('admin_sessions', 'SELECT'), ('admin_sessions', 'INSERT'), ('admin_sessions', 'DELETE'),
-              ('admin_login_attempts', 'SELECT'), ('admin_login_attempts', 'INSERT'), ('admin_login_attempts', 'UPDATE'), ('admin_login_attempts', 'DELETE')
+              ('admin_login_attempts', 'SELECT'), ('admin_login_attempts', 'INSERT'), ('admin_login_attempts', 'UPDATE'), ('admin_login_attempts', 'DELETE'),
+              ('admin_password_recoveries', 'SELECT'), ('admin_password_recoveries', 'INSERT'), ('admin_password_recoveries', 'UPDATE'),
+              ('admin_password_recovery_rate_limits', 'SELECT'), ('admin_password_recovery_rate_limits', 'INSERT'),
+              ('admin_password_recovery_rate_limits', 'UPDATE'), ('admin_password_recovery_rate_limits', 'DELETE')
             ) AS expected(table_name, privilege_type)
             WHERE NOT EXISTS (
               SELECT 1 FROM pg_class c
@@ -463,11 +473,26 @@ if (configFailure) {
             )
           ) AS expected_direct_table_privileges,
           NOT EXISTS (
+            SELECT 1
+            FROM (VALUES ('users', 'password_hash', 'UPDATE'), ('users', 'updated_at', 'UPDATE'))
+              AS expected(table_name, column_name, privilege_type)
+            WHERE NOT EXISTS (
+              SELECT 1 FROM pg_attribute a
+              JOIN pg_class c ON c.oid = a.attrelid
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+              CROSS JOIN LATERAL aclexplode(a.attacl) AS acl
+              WHERE n.nspname = 'public' AND c.relname = expected.table_name
+                AND a.attname = expected.column_name AND NOT a.attisdropped
+                AND acl.grantee = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+                AND acl.privilege_type = expected.privilege_type
+            )
+          ) AS expected_direct_column_privileges,
+          NOT EXISTS (
             SELECT 1 FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) AS acl
             WHERE n.nspname = 'public'
-              AND c.relname = ANY(ARRAY['roles', 'users', 'categories', 'products', 'media_assets', 'product_media', 'business_settings', 'audit_log', 'admin_sessions', 'admin_login_attempts', 'schema_migrations'])
+              AND c.relname = ANY(ARRAY['roles', 'users', 'categories', 'products', 'media_assets', 'product_media', 'business_settings', 'audit_log', 'admin_sessions', 'admin_login_attempts', 'admin_password_recoveries', 'admin_password_recovery_rate_limits', 'schema_migrations'])
               AND acl.grantee = 0
           ) AS no_public_table_grants,
           NOT EXISTS (
@@ -496,7 +521,7 @@ if (configFailure) {
               CASE WHEN c.relkind = 'S' THEN 'S' ELSE 'r' END, c.relowner
             ))) AS acl
             WHERE n.nspname = 'public'
-              AND c.relname = ANY(ARRAY['roles', 'users', 'categories', 'products', 'media_assets', 'product_media', 'business_settings', 'audit_log', 'admin_sessions', 'admin_login_attempts', 'schema_migrations'])
+              AND c.relname = ANY(ARRAY['roles', 'users', 'categories', 'products', 'media_assets', 'product_media', 'business_settings', 'audit_log', 'admin_sessions', 'admin_login_attempts', 'admin_password_recoveries', 'admin_password_recovery_rate_limits', 'schema_migrations'])
               AND acl.grantee = (SELECT oid FROM pg_roles WHERE rolname = current_user)
               AND acl.is_grantable
           ) AND NOT EXISTS (
@@ -511,7 +536,7 @@ if (configFailure) {
              SELECT 1 FROM pg_class c
              JOIN pg_namespace n ON n.oid = c.relnamespace
              WHERE n.nspname = 'public'
-               AND c.relname = ANY(ARRAY['roles', 'users', 'categories', 'products', 'media_assets', 'product_media', 'business_settings', 'audit_log', 'admin_sessions', 'admin_login_attempts', 'schema_migrations'])
+               AND c.relname = ANY(ARRAY['roles', 'users', 'categories', 'products', 'media_assets', 'product_media', 'business_settings', 'audit_log', 'admin_sessions', 'admin_login_attempts', 'admin_password_recoveries', 'admin_password_recovery_rate_limits', 'schema_migrations'])
                AND c.relowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)
            ) AND NOT EXISTS (
              SELECT 1 FROM pg_namespace n
@@ -556,6 +581,8 @@ if (configFailure) {
             OR has_table_privilege(current_user, 'public.audit_log', 'TRUNCATE')
             OR has_table_privilege(current_user, 'public.admin_sessions', 'TRUNCATE')
             OR has_table_privilege(current_user, 'public.admin_login_attempts', 'TRUNCATE')
+            OR has_table_privilege(current_user, 'public.admin_password_recoveries', 'TRUNCATE')
+            OR has_table_privilege(current_user, 'public.admin_password_recovery_rate_limits', 'TRUNCATE')
             OR has_table_privilege(current_user, 'public.schema_migrations', 'TRUNCATE')
           ) AS no_table_truncate,
           NOT (
@@ -569,6 +596,8 @@ if (configFailure) {
             OR has_table_privilege(current_user, 'public.audit_log', 'REFERENCES') OR has_table_privilege(current_user, 'public.audit_log', 'TRIGGER')
             OR has_table_privilege(current_user, 'public.admin_sessions', 'REFERENCES') OR has_table_privilege(current_user, 'public.admin_sessions', 'TRIGGER')
             OR has_table_privilege(current_user, 'public.admin_login_attempts', 'REFERENCES') OR has_table_privilege(current_user, 'public.admin_login_attempts', 'TRIGGER')
+            OR has_table_privilege(current_user, 'public.admin_password_recoveries', 'REFERENCES') OR has_table_privilege(current_user, 'public.admin_password_recoveries', 'TRIGGER')
+            OR has_table_privilege(current_user, 'public.admin_password_recovery_rate_limits', 'REFERENCES') OR has_table_privilege(current_user, 'public.admin_password_recovery_rate_limits', 'TRIGGER')
             OR has_table_privilege(current_user, 'public.schema_migrations', 'REFERENCES') OR has_table_privilege(current_user, 'public.schema_migrations', 'TRIGGER')
           ) AS no_table_reference_or_trigger,
           (has_table_privilege(current_user, 'public.roles', 'INSERT')
@@ -600,6 +629,15 @@ if (configFailure) {
             AND has_table_privilege(current_user, 'public.admin_login_attempts', 'INSERT')
             AND has_table_privilege(current_user, 'public.admin_login_attempts', 'UPDATE')
             AND has_table_privilege(current_user, 'public.admin_login_attempts', 'DELETE')) AS can_manage_login_attempts,
+          (has_table_privilege(current_user, 'public.admin_password_recoveries', 'SELECT')
+            AND has_table_privilege(current_user, 'public.admin_password_recoveries', 'INSERT')
+            AND has_table_privilege(current_user, 'public.admin_password_recoveries', 'UPDATE')) AS can_manage_password_recoveries,
+          (has_table_privilege(current_user, 'public.admin_password_recovery_rate_limits', 'SELECT')
+            AND has_table_privilege(current_user, 'public.admin_password_recovery_rate_limits', 'INSERT')
+            AND has_table_privilege(current_user, 'public.admin_password_recovery_rate_limits', 'UPDATE')
+            AND has_table_privilege(current_user, 'public.admin_password_recovery_rate_limits', 'DELETE')) AS can_manage_recovery_rate_limits,
+          (has_column_privilege(current_user, 'public.users', 'password_hash', 'UPDATE')
+            AND has_column_privilege(current_user, 'public.users', 'updated_at', 'UPDATE')) AS can_update_owner_password_fields,
           has_sequence_privilege(current_user, pg_get_serial_sequence('public.categories', 'id'), 'USAGE') AS can_use_categories_sequence,
           has_sequence_privilege(current_user, pg_get_serial_sequence('public.products', 'id'), 'USAGE') AS can_use_products_sequence,
           has_sequence_privilege(current_user, pg_get_serial_sequence('public.media_assets', 'id'), 'USAGE') AS can_use_media_assets_sequence,
