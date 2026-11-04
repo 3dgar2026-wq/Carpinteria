@@ -126,6 +126,11 @@ export function createApp({
     if (!/^[1-9]\d{0,18}$/.test(id) || (id.length === 19 && id > '9223372036854775807')) {
       return response.status(404).send('No se encontró la fotografía.');
     }
+    const size = (request.query ?? {}).size;
+    if (size !== undefined && !['preview', 'large'].includes(size)) {
+      return response.status(400).send('La versión solicitada de la fotografía no es válida.');
+    }
+    const width = size === 'preview' ? 960 : size === 'large' ? 2000 : undefined;
     let rows;
     try {
       if (!(await hasVerifiablePublicMediaColumns(query))) {
@@ -156,7 +161,7 @@ export function createApp({
         'Cache-Control': 'private, no-store',
         'X-Content-Type-Options': 'nosniff',
       });
-      const stream = await mediaStorage.openStoredImage(rows[0].storage_key);
+      const stream = await mediaStorage.openStoredImage(rows[0].storage_key, { width });
       stream.on('error', () => {
         if (!response.headersSent) response.status(404).send('No se encontró la fotografía.');
         else response.destroy();

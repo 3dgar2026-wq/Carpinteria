@@ -14,6 +14,9 @@ const categoryFilters = document.querySelector('.category-filters');
 const productDetailsDialog = document.querySelector('#product-details-dialog');
 const productDetailsContent = document.querySelector('#product-details-content');
 const productDetailsClose = document.querySelector('#product-details-close');
+const imageViewerDialog = document.querySelector('#image-viewer-dialog');
+const imageViewerImage = document.querySelector('#image-viewer-image');
+const imageViewerClose = document.querySelector('#image-viewer-close');
 const adminAccessLink = document.querySelector('#admin-access-link');
 const copyrightYear = document.querySelector('#copyright-year');
 
@@ -32,6 +35,13 @@ let catalogProducts = [];
 let selectedCategory = '';
 let lastDetailsTrigger = null;
 let catalogRequestController = null;
+
+function mediaUrl(media, size = 'preview') {
+  if (!media?.url) return '';
+  const url = new URL(media.url, window.location.origin);
+  if (url.origin === window.location.origin) url.searchParams.set('size', size);
+  return url.href;
+}
 
 async function refreshAdminAccess() {
   try {
@@ -222,7 +232,7 @@ function createProductCard(product) {
     const photo = media[0];
     const image = document.createElement('img');
     image.className = 'product-card-cover';
-    image.src = photo.url;
+    image.src = mediaUrl(photo, 'preview');
     image.alt = photo.altText?.trim() || `Fotografía de ${product.name}`;
     image.loading = 'lazy';
     image.decoding = 'async';
@@ -254,52 +264,101 @@ function openProductDetails(product, trigger) {
 
   const layout = document.createElement('div');
   layout.className = 'product-detail-layout';
-  const photo = product.media?.find((media) => typeof media.url === 'string' && media.url);
   const photoFrame = document.createElement('div');
   photoFrame.className = 'product-detail-photo';
   const photos = (product.media ?? []).filter((media) => typeof media.url === 'string' && media.url);
-  if (photo) {
+  if (photos.length) {
     const gallery = document.createElement('div');
     gallery.className = 'product-detail-gallery';
     gallery.setAttribute('role', 'group');
     gallery.setAttribute('aria-label', `Galería de fotografías de ${product.name}`);
-    const image = document.createElement('img');
-    image.src = photo.url;
-    image.alt = photo.altText?.trim() || `Fotografía 1 de ${product.name}`;
-    image.loading = 'eager';
-    image.decoding = 'async';
-    image.addEventListener('error', () => {
-      if (image.isConnected) image.replaceWith(textElement('p', 'product-media-unavailable', 'Fotografía pública no disponible.'));
-    }, { once: true });
-    gallery.append(image);
+    const track = document.createElement('div');
+    track.className = 'product-detail-gallery-track';
+    track.tabIndex = 0;
+    track.setAttribute('aria-label', 'Desliza para recorrer las fotografías');
+    const counter = textElement('span', 'product-detail-gallery-counter', `1 de ${photos.length}`);
+    counter.setAttribute('aria-live', 'polite');
+    photos.forEach((current, index) => {
+      const slide = document.createElement('div');
+      slide.className = 'product-detail-gallery-slide';
+      const image = document.createElement('img');
+      image.src = mediaUrl(current, 'preview');
+      image.alt = current.altText?.trim() || `Fotografía ${index + 1} de ${product.name}`;
+      image.loading = index === 0 ? 'eager' : 'lazy';
+      image.decoding = 'async';
+      image.draggable = false;
+      image.tabIndex = 0;
+      image.setAttribute('role', 'button');
+      image.setAttribute('aria-label', `Ampliar fotografía ${index + 1} de ${photos.length}`);
+      image.addEventListener('click', () => openImageViewer(current, product.name, index));
+      if (index === 0) image.addEventListener('load', sizeProductDetailsDialog, { once: true });
+      image.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openImageViewer(current, product.name, index);
+        }
+      });
+      image.addEventListener('error', () => {
+        if (image.isConnected) image.replaceWith(textElement('p', 'product-media-unavailable', 'Fotografía pública no disponible.'));
+      }, { once: true });
+      slide.append(image);
+      track.append(slide);
+    });
     if (photos.length > 1) {
-      const controls = document.createElement('div');
-      controls.className = 'product-detail-gallery-controls';
-      let activeIndex = 0;
-      const previous = document.createElement('button');
-      previous.type = 'button';
-      previous.className = 'button button-outline';
-      previous.textContent = 'Anterior';
-      previous.setAttribute('aria-label', 'Ver fotografía anterior');
-      const counter = textElement('span', 'product-detail-gallery-counter', `1 de ${photos.length}`);
-      counter.setAttribute('aria-live', 'polite');
-      const next = document.createElement('button');
-      next.type = 'button';
-      next.className = 'button button-outline';
-      next.textContent = 'Siguiente';
-      next.setAttribute('aria-label', 'Ver fotografía siguiente');
-      const showPhoto = (index) => {
-        activeIndex = (index + photos.length) % photos.length;
-        const current = photos[activeIndex];
-        image.src = current.url;
-        image.alt = current.altText?.trim() || `Fotografía ${activeIndex + 1} de ${product.name}`;
-        counter.textContent = `${activeIndex + 1} de ${photos.length}`;
-      };
-      previous.addEventListener('click', () => showPhoto(activeIndex - 1));
-      next.addEventListener('click', () => showPhoto(activeIndex + 1));
-      controls.append(previous, counter, next);
-      gallery.append(controls);
+      const loopSlide = track.lastElementChild.cloneNode(true);
+      loopSlide.dataset.loopEnd = 'true';
+      loopSlide.setAttribute('aria-hidden', 'true');
+      const loopImage = loopSlide.querySelector('img');
+      loopImage.alt = '';
+      loopImage.tabIndex = -1;
+      loopImage.removeAttribute('role');
+      loopImage.removeAttribute('aria-label');
+      loopImage.loading = 'lazy';
+      track.append(loopSlide);
     }
+    track.addEventListener('scroll', () => {
+      const visibleIndex = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+      const index = visibleIndex >= photos.length ? 0 : Math.min(photos.length - 1, visibleIndex);
+      counter.textContent = `${index + 1} de ${photos.length}`;
+      if (visibleIndex >= photos.length) {
+        window.clearTimeout(track.wrapTimer);
+        track.wrapTimer = window.setTimeout(() => { track.scrollLeft = 0; }, 100);
+      }
+    }, { passive: true });
+    let dragStart = null;
+    const moveDrag = (event) => {
+      if (!dragStart || event.pointerId !== dragStart.pointerId) return;
+      const delta = event.clientX - dragStart.x;
+      if (Math.abs(delta) > 4) dragStart.moved = true;
+      if (dragStart.moved) track.scrollLeft = dragStart.scrollLeft - delta;
+    };
+    track.addEventListener('pointerdown', (event) => {
+      if (event.pointerType !== 'mouse' || event.button !== 0) return;
+      dragStart = { pointerId: event.pointerId, x: event.clientX, scrollLeft: track.scrollLeft, moved: false };
+      window.addEventListener('pointermove', moveDrag);
+      window.addEventListener('pointerup', finishDrag);
+      window.addEventListener('pointercancel', finishDrag);
+    });
+    function finishDrag(event) {
+      if (!dragStart || (event?.pointerId !== undefined && event.pointerId !== dragStart.pointerId)) return;
+      if (dragStart.moved && track.contains(event.target)) {
+        track.dataset.draggedUntil = String(Date.now() + 250);
+      }
+      dragStart = null;
+      window.removeEventListener('pointermove', moveDrag);
+      window.removeEventListener('pointerup', finishDrag);
+      window.removeEventListener('pointercancel', finishDrag);
+    }
+    track.addEventListener('click', (event) => {
+      if (Date.now() <= Number(track.dataset.draggedUntil ?? 0)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, true);
+    const controls = document.createElement('div');
+    controls.className = 'product-detail-gallery-controls';
+    controls.append(counter, textElement('span', 'gallery-hint', 'Desliza o arrastra · Pulsa la foto para ampliar'));
+    gallery.append(track, controls);
     photoFrame.append(gallery);
   } else {
     photoFrame.append(textElement('p', 'product-media-unavailable', 'Sin fotografía pública disponible.'));
@@ -307,13 +366,38 @@ function openProductDetails(product, trigger) {
 
   const information = document.createElement('div');
   information.className = 'product-detail-information';
+  const detailsToggle = document.createElement('button');
+  detailsToggle.type = 'button';
+  detailsToggle.className = 'product-details-toggle';
+  detailsToggle.textContent = 'Ver detalles';
+  detailsToggle.setAttribute('aria-expanded', 'false');
+  detailsToggle.setAttribute('aria-controls', `product-detail-extra-${product.id}`);
+  let detailsExpanded = false;
+  const extraPanel = document.createElement('div');
+  extraPanel.className = 'product-detail-extra';
+  extraPanel.id = `product-detail-extra-${product.id}`;
+  extraPanel.setAttribute('aria-hidden', 'true');
+  extraPanel.inert = true;
+  const extraContent = document.createElement('div');
+  extraContent.className = 'product-detail-extra-inner';
+  extraPanel.append(extraContent);
+  detailsToggle.addEventListener('click', () => {
+    detailsExpanded = !detailsExpanded;
+    layout.classList.toggle('details-expanded', detailsExpanded);
+    detailsToggle.textContent = detailsExpanded ? 'Ocultar detalles' : 'Ver detalles';
+    detailsToggle.setAttribute('aria-expanded', String(detailsExpanded));
+    extraPanel.setAttribute('aria-hidden', String(!detailsExpanded));
+    extraPanel.inert = !detailsExpanded;
+    if (!detailsExpanded) detailsToggle.focus();
+  });
   const title = textElement('h2', 'product-detail-title', product.name);
   title.id = 'product-detail-title';
   information.append(title);
   if (product.category_name) information.append(textElement('p', 'eyebrow product-category', product.category_name));
-  if (product.description) information.append(textElement('p', 'product-detail-description', product.description));
+  if (product.description) extraContent.append(textElement('p', 'product-detail-description', product.description));
   const price = formatMoney(product.price, product.currency);
   information.append(textElement('p', 'product-detail-price', price ?? 'Precio por cotizar'));
+  information.append(detailsToggle);
   const productVideos = product.videos?.length ? product.videos : (product.video ? [product.video] : []);
   for (const [index, productVideo] of productVideos.entries()) {
     if (!productVideo?.url || !['video/mp4', 'video/webm'].includes(productVideo.mimeType)) continue;
@@ -325,7 +409,7 @@ function openProductDetails(product, trigger) {
     video.playsInline = true;
     video.src = productVideo.url;
     video.setAttribute('aria-label', `${videoHeading.textContent} de ${product.name}`);
-    information.append(videoHeading, video);
+    extraContent.append(videoHeading, video);
   }
 
   const fixedDimensions = fixedDimensionSpecs(product.fixed_dimensions);
@@ -341,15 +425,15 @@ function openProductDetails(product, trigger) {
       );
     }
     section.append(list);
-    information.append(section);
+    extraContent.append(section);
   }
 
   const configuredDimensions = measurementSpecs(product.measurement_config);
   const dimensions = configuredDimensions ?? [];
   if (configuredDimensions) {
-    information.append(textElement('h3', 'product-detail-measure-heading', 'Medidas para cotizar'));
+    extraContent.append(textElement('h3', 'product-detail-measure-heading', 'Medidas para cotizar'));
   } else if (product.measurement_config) {
-    information.append(textElement('p', 'field-help', 'Las opciones de medidas están pendientes de configuración. Puedes describir tu solicitud abajo.'));
+    extraContent.append(textElement('p', 'field-help', 'Las opciones de medidas están pendientes de configuración. Puedes describir tu solicitud abajo.'));
   }
 
   const formDetails = createMeasurementForm(product, dimensions);
@@ -372,10 +456,46 @@ function openProductDetails(product, trigger) {
   form.insertBefore(notesField, form.querySelector('.estimate-outcome'));
 
   layout.append(photoFrame, information);
-  information.append(formDetails);
+  extraContent.append(formDetails);
+  information.append(extraPanel);
   productDetailsContent.append(layout);
   productDetailsDialog.showModal();
+  sizeProductDetailsDialog();
   productDetailsClose.focus();
+}
+
+function sizeProductDetailsDialog() {
+  if (!productDetailsDialog?.open) return;
+  const image = productDetailsContent.querySelector('.product-detail-gallery-slide img');
+  const ratio = image?.naturalWidth && image?.naturalHeight
+    ? image.naturalWidth / image.naturalHeight
+    : 4 / 3;
+  const viewportWidth = document.documentElement.clientWidth;
+  const viewportHeight = window.innerHeight;
+  const isStacked = viewportWidth <= 900;
+
+  if (isStacked) {
+    const panelPadding = Math.min(25.6, Math.max(12, viewportWidth * .02));
+    const contentWidth = Math.max(240, Math.min(viewportWidth * .94, 56 * 16) - panelPadding * 2 - 2);
+    const maxPhotoHeight = viewportHeight * (viewportWidth <= 760 ? .46 : .52);
+    const photoHeight = Math.min(maxPhotoHeight, contentWidth / ratio);
+    productDetailsDialog.style.removeProperty('--detail-dialog-width');
+    productDetailsDialog.style.setProperty('--detail-photo-height', `${Math.round(photoHeight)}px`);
+    return;
+  }
+
+  const panelPadding = Math.min(25.6, Math.max(13.6, viewportWidth * .02));
+  const gap = Math.min(20, Math.max(12, viewportWidth * .015));
+  const maxDialogWidth = Math.min(viewportWidth * .92, 1100);
+  const maxPhotoWidth = Math.max(240, (maxDialogWidth - gap - panelPadding * 2 - 2) * .55);
+  const maxPhotoHeight = Math.min(680, viewportHeight * .85 - 40 - panelPadding * 2);
+  const photoWidth = Math.min(maxPhotoWidth, maxPhotoHeight * ratio);
+  const photoHeight = photoWidth / ratio;
+  const photoColumnWidth = Math.max(photoWidth, 304 * 55 / 45);
+  const infoWidth = Math.max(304, photoWidth * 45 / 55);
+  const dialogWidth = photoColumnWidth + infoWidth + gap + panelPadding * 2 + 2;
+  productDetailsDialog.style.setProperty('--detail-dialog-width', `${Math.round(dialogWidth)}px`);
+  productDetailsDialog.style.setProperty('--detail-photo-height', `${Math.round(photoHeight)}px`);
 }
 
 function renderCategoryFilters() {
@@ -522,7 +642,7 @@ function requestSummary() {
     if (item.product.category_name) lines.push(`Categoría: ${item.product.category_name}`);
     const photos = (item.product.media ?? []).filter((media) => typeof media.url === 'string' && media.url);
     lines.push('Fotografías:');
-    if (photos.length) photos.forEach((photo, photoIndex) => lines.push(`- Fotografía ${photoIndex + 1}: ${new URL(photo.url, window.location.origin).href}`));
+    if (photos.length) photos.forEach((photo, photoIndex) => lines.push(`- Fotografía ${photoIndex + 1}: ${mediaUrl(photo, 'large')}`));
     else lines.push('- No disponibles públicamente.');
     const videos = item.product.videos?.length ? item.product.videos : (item.product.video ? [item.product.video] : []);
     lines.push('Videos:');
@@ -549,6 +669,56 @@ function requestSummary() {
   return lines.join('\n');
 }
 
+let lastImageViewerTrigger = null;
+function openImageViewer(media, productName, index) {
+  if (!imageViewerDialog || !imageViewerImage) return;
+  lastImageViewerTrigger = document.activeElement;
+  imageViewerDialog.classList.add('is-sizing');
+  imageViewerImage.alt = media.altText?.trim() || `Fotografía ${index + 1} de ${productName}`;
+  imageViewerImage.addEventListener('load', sizeImageViewer, { once: true });
+  imageViewerImage.addEventListener('error', () => imageViewerDialog.classList.remove('is-sizing'), { once: true });
+  imageViewerImage.src = mediaUrl(media, 'large');
+  imageViewerDialog.showModal();
+  sizeImageViewer();
+  document.body.classList.add('has-image-viewer');
+  imageViewerClose.focus();
+}
+
+function sizeImageViewer() {
+  if (!imageViewerDialog?.open || !imageViewerImage?.naturalWidth || !imageViewerImage?.naturalHeight) return;
+  const ratio = imageViewerImage.naturalWidth / imageViewerImage.naturalHeight;
+  const viewportWidth = document.documentElement.clientWidth;
+  const viewportHeight = window.innerHeight;
+  const isMobile = viewportWidth <= 760;
+  const isTablet = viewportWidth <= 900;
+  const maxPanelWidth = Math.min(viewportWidth * (isMobile ? .94 : isTablet ? .9 : .85), 1200);
+  const maxPanelHeight = Math.min(viewportHeight * (isMobile ? .9 : isTablet ? .9 : .88), 900);
+  const frameWidth = Math.max(1, maxPanelWidth - 2);
+  const frameHeight = Math.max(1, maxPanelHeight - 2);
+  const imageWidth = Math.min(frameWidth, frameHeight * ratio);
+  const imageHeight = imageWidth / ratio;
+  imageViewerDialog.style.setProperty('--viewer-panel-width', `${Math.round(imageWidth + 2)}px`);
+  imageViewerDialog.style.setProperty('--viewer-panel-height', `${Math.round(imageHeight + 2)}px`);
+  imageViewerDialog.classList.remove('is-sizing');
+}
+
+window.addEventListener('resize', () => {
+  sizeImageViewer();
+  sizeProductDetailsDialog();
+});
+
+imageViewerClose?.addEventListener('click', () => imageViewerDialog.close());
+imageViewerDialog?.addEventListener('click', (event) => {
+  if (event.target === imageViewerDialog) imageViewerDialog.close();
+});
+imageViewerDialog?.addEventListener('close', () => {
+  document.body.classList.remove('has-image-viewer');
+  imageViewerDialog.classList.remove('is-sizing');
+  imageViewerImage.removeAttribute('src');
+  if (lastImageViewerTrigger?.isConnected) lastImageViewerTrigger.focus();
+  lastImageViewerTrigger = null;
+});
+
 function requestPriceLabel(product, estimate) {
   if (estimate) return `  Estimación orientativa: ${formatMoney(estimate.amount, estimate.currency)}`;
   const publishedPrice = formatMoney(product.price, product.currency);
@@ -574,7 +744,7 @@ function renderRequest() {
     photoFrame.className = 'request-item-photo';
     if (photo) {
       const image = document.createElement('img');
-      image.src = photo.url;
+      image.src = mediaUrl(photo, 'preview');
       image.alt = photo.altText?.trim() || `Fotografía de ${item.product.name}`;
       image.loading = 'lazy';
       image.decoding = 'async';
