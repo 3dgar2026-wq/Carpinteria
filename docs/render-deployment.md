@@ -9,6 +9,14 @@
 - Puerto: Render entrega `PORT`; Express escucha en `0.0.0.0`.
 - `NODE_ENV=production` y `MEDIA_STORAGE_PROVIDER=cloudinary`.
 
+## Arranque en Render
+
+La página `SERVICE WAKING UP` pertenece a Render, no a los archivos estáticos de esta aplicación. En un servicio Free, Render duerme la instancia después de 15 minutos sin tráfico y muestra una pantalla de carga mientras la vuelve a iniciar; Render indica que ese arranque puede tardar aproximadamente un minuto. Si el servicio no está en Free, esa pantalla por sí sola no identifica la causa y se deben revisar los eventos y logs del servicio en el Dashboard.
+
+El proceso valida la configuración requerida antes de escuchar, toma el puerto `PORT` asignado y enlaza `0.0.0.0`. `/api/health` comprueba PostgreSQL con `SELECT 1`, por lo que devuelve `503` si la base aún no responde. El catálogo reintenta hasta dos veces con espera creciente ante fallos transitorios de carga. Estos comportamientos se revisaron en el código, pero no se consultó el endpoint público ni los logs del servicio; el estado del plan y del arranque desplegado queda pendiente de validación desde el Dashboard.
+
+Sin cambiar de plan, el cliente puede esperar a que Render termine el arranque y volver a cargar si la página de espera no continúa. Si la demora ocurre mientras el servicio ya figura activo, o el health check sigue fallando después del arranque, se deben revisar los eventos, logs y el resultado de `/api/health` en ese momento antes de atribuirlo a la suspensión por inactividad. Evita sondeos periódicos automáticos para mantener despierto un servicio Free.
+
 El comando de Render no lee `.env`; el servidor utiliza exclusivamente las variables configuradas para el servicio. En local, `npm run dev` carga el archivo `.env`; `npm start` ejecuta `node server/index.js` sin cargar archivos de entorno. La validación de `DATABASE_URL`, Cloudinary y demás configuración requerida permanece activa antes de que el servidor escuche.
 
 Completa en Render los valores `sync: false` con el gestor de secretos:

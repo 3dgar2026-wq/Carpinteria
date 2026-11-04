@@ -314,15 +314,17 @@ function openProductDetails(product, trigger) {
   if (product.description) information.append(textElement('p', 'product-detail-description', product.description));
   const price = formatMoney(product.price, product.currency);
   information.append(textElement('p', 'product-detail-price', price ?? 'Precio por cotizar'));
-  if (product.video?.url && ['video/mp4', 'video/webm'].includes(product.video.mimeType)) {
-    const videoHeading = textElement('h3', 'product-detail-video-heading', 'Video del trabajo');
+  const productVideos = product.videos?.length ? product.videos : (product.video ? [product.video] : []);
+  for (const [index, productVideo] of productVideos.entries()) {
+    if (!productVideo?.url || !['video/mp4', 'video/webm'].includes(productVideo.mimeType)) continue;
+    const videoHeading = textElement('h3', 'product-detail-video-heading', productVideos.length > 1 ? `Video ${index + 1}` : 'Video del trabajo');
     const video = document.createElement('video');
     video.className = 'product-detail-video';
     video.controls = true;
     video.preload = 'none';
     video.playsInline = true;
-    video.src = product.video.url;
-    video.setAttribute('aria-label', `Video del trabajo ${product.name}`);
+    video.src = productVideo.url;
+    video.setAttribute('aria-label', `${videoHeading.textContent} de ${product.name}`);
     information.append(videoHeading, video);
   }
 
@@ -512,19 +514,38 @@ function addRequest(product, measurements = {}, notes = '') {
 }
 
 function requestSummary() {
-  const lines = ['Solicitud de cotización', ''];
+  const lines = ['SOLICITUD DE COTIZACIÓN', ''];
+  let index = 0;
   for (const item of requests.values()) {
-    lines.push(`• ${item.product.name}`);
-    if (item.product.category_name) lines.push(`  Categoría: ${item.product.category_name}`);
+    index += 1;
+    lines.push(`Producto ${index}: ${item.product.name}`);
+    if (item.product.category_name) lines.push(`Categoría: ${item.product.category_name}`);
+    const photos = (item.product.media ?? []).filter((media) => typeof media.url === 'string' && media.url);
+    lines.push('Fotografías:');
+    if (photos.length) photos.forEach((photo, photoIndex) => lines.push(`- Fotografía ${photoIndex + 1}: ${new URL(photo.url, window.location.origin).href}`));
+    else lines.push('- No disponibles públicamente.');
+    const videos = item.product.videos?.length ? item.product.videos : (item.product.video ? [item.product.video] : []);
+    lines.push('Videos:');
+    const publicVideos = videos.filter((video) => typeof video.url === 'string');
+    if (publicVideos.length) publicVideos.forEach((video, videoIndex) => {
+      const videoUrl = new URL(video.url, window.location.origin).href;
+      lines.push(`- Video ${videoIndex + 1}: ${videoUrl}`);
+    });
+    else lines.push('- No disponibles públicamente.');
+    lines.push('Medidas:');
+    if (!Object.keys(item.measurements).length) lines.push('- No indicadas.');
     for (const [dimension, value] of Object.entries(item.measurements)) {
       const label = dimensionLabel(item.product, dimension);
-      lines.push(`  ${label}: ${formatMeasurement(value, 3)} m (${formatMeasurement(value * 100, 2)} cm)`);
+      lines.push(`- ${label}: ${formatMeasurement(value, 3)} m (${formatMeasurement(value * 100, 2)} cm)`);
     }
-    if (item.notes) lines.push(`  Solicitud adicional: ${item.notes}`);
+    const fixed = fixedDimensionSpecs(item.product.fixed_dimensions);
+    if (fixed.length) lines.push(`Dimensiones registradas: ${fixed.map((dimension) => `${dimension.label}: ${formatMeasurement(dimension.value_m, 3)} m`).join(' · ')}`);
+    if (item.product.description?.trim()) lines.push(`Detalles: ${item.product.description.trim()}`);
+    if (item.notes) lines.push(`Información adicional: ${item.notes}`);
     lines.push(requestPriceLabel(item.product, item.estimate));
-    lines.push('');
+    lines.push('', '--------------------------------', '');
   }
-  lines.push('El precio final se acordará directamente con el maestro ebanista, teniendo en cuenta las características y especificaciones del mueble.');
+  lines.push('MENSAJE:', 'Me gustaría recibir información y cotización sobre estos trabajos.', '', 'El precio final se acordará directamente con el maestro ebanista, teniendo en cuenta las características y especificaciones de cada mueble.');
   return lines.join('\n');
 }
 
@@ -854,14 +875,39 @@ async function loadCatalog() {
   const controller = new AbortController();
   catalogRequestController = controller;
   try {
-    const response = await fetch('/api/catalog', {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-      signal: controller.signal,
-    });
-    if (!response.ok) throw new Error('catalog unavailable');
-    const result = await response.json();
-    if (!Array.isArray(result.products)) throw new Error('invalid catalog response');
+    let result;
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const response = await fetch('/api/catalog', {
+          cache: 'no-store',
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error('catalog unavailable');
+        result = await response.json();
+        if (!Array.isArray(result.products)) throw new Error('invalid catalog response');
+        break;
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        lastError = error;
+        if (attempt === 2) throw error;
+        await new Promise((resolve) => {
+          const onAbort = () => {
+            window.clearTimeout(timer);
+            controller.signal.removeEventListener('abort', onAbort);
+            resolve();
+          };
+          const timer = window.setTimeout(() => {
+            controller.signal.removeEventListener('abort', onAbort);
+            resolve();
+          }, 700 * (attempt + 1));
+          controller.signal.addEventListener('abort', onAbort, { once: true });
+        });
+        if (controller.signal.aborted) return;
+      }
+    }
+    if (!result) throw lastError ?? new Error('catalog unavailable');
 
     catalogProducts = result.products;
     productsById = new Map(catalogProducts.map((product) => [String(product.id), product]));

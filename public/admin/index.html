@@ -132,13 +132,12 @@
               <div id="wizard-cover-options" class="wizard-cover-options"></div>
             </fieldset>
             <fieldset class="wizard-video-fieldset">
-              <legend>Video del trabajo <span class="optional-label">(opcional)</span></legend>
-              <p id="wizard-video-help" class="field-help">Formatos MP4 o WebM. El video se reproduce bajo demanda en los detalles públicos.</p>
+              <legend>Videos del trabajo <span class="optional-label">(opcional)</span></legend>
+              <p id="wizard-video-help" class="field-help">Puedes agregar varios videos MP4 o WebM. Se reproducen bajo demanda en los detalles públicos.</p>
               <div id="wizard-video-preview" class="wizard-video-preview" aria-live="polite"></div>
               <label class="button button-outline photo-select-button" for="wizard-video-file">Seleccionar video
-                <input id="wizard-video-file" class="visually-hidden" type="file" accept="video/mp4,video/webm,.mp4,.webm">
+                <input id="wizard-video-file" class="visually-hidden" type="file" accept="video/mp4,video/webm,.mp4,.webm" multiple>
               </label>
-              <button id="wizard-video-remove" class="button button-text" type="button" hidden>Quitar video al guardar</button>
               <p id="wizard-video-status" class="admin-status" role="status" aria-live="polite"></p>
             </fieldset>
           </section>

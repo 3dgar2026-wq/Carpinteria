@@ -23,10 +23,12 @@ let pool;
 let app;
 let publicImageHandler;
 let publicVideoHandler;
+let healthHandler;
 let adminImageHandler;
 let adminDeleteHandler;
 let uploadImageHandler;
 let uploadVideoHandler;
+let uploadVideosHandler;
 let requireAdminApi;
 let requireAdminCsrf;
 let encryptedEmail;
@@ -34,6 +36,7 @@ let emailLookupHash;
 let cloudinarySdk;
 let publicMediaVisible = false;
 let publicVideoVisible = false;
+let catalogSql = '';
 let publicMediaQueries = 0;
 let cloudinaryReadCount = 0;
 let failRemoteDelete = false;
@@ -149,7 +152,8 @@ before(async () => {
 
   const query = async (sql) => {
     if (sql.includes('information_schema.columns')) return { rows: [{ available: 2 }] };
-    if (sql.includes('FROM media_assets ma') && sql.includes('classification_status = \'assigned\'')) {
+    if (sql.trim() === 'SELECT 1') return { rows: [{}] };
+    if (!sql.includes('FROM products p') && sql.includes('FROM media_assets ma') && sql.includes('classification_status = \'assigned\'')) {
       publicMediaQueries += 1;
       if (sql.includes("ma.media_kind = 'video'")) {
         return { rows: publicVideoVisible ? [{ storage_key: remoteVideoKey, mime_type: 'video/mp4' }] : [] };
@@ -157,6 +161,7 @@ before(async () => {
       return { rows: publicMediaVisible ? [{ storage_key: remoteKey, mime_type: 'image/jpeg' }] : [] };
     }
     if (sql.includes('FROM products p')) {
+      catalogSql = sql;
       return { rows: [{
         id: 10,
         name: 'Trabajo publicado de prueba',
@@ -169,6 +174,10 @@ before(async () => {
         category_name: null,
         category_slug: null,
         media: [],
+        videos: [
+          { id: 31, mimeType: 'video/mp4', url: '/media/video/31' },
+          { id: 32, mimeType: 'video/webm', url: '/media/video/32' },
+        ],
         video: null,
       }] };
     }
@@ -197,6 +206,7 @@ before(async () => {
     release() {},
   });
   app = appModule.createApp({ query });
+  healthHandler = app.router.stack.find((layer) => layer.route?.path === '/api/health').route.stack[0].handle;
   publicImageHandler = app.router.stack.find((layer) => layer.route?.path === '/media/:id').route.stack[0].handle;
   publicVideoHandler = app.router.stack.find((layer) => layer.route?.path === '/media/video/:id').route.stack[0].handle;
   adminImageHandler = adminApi.default.stack.find((layer) => layer.route?.path === '/media/:id/content').route.stack[0].handle;
@@ -204,6 +214,7 @@ before(async () => {
   adminDeleteHandler = deleteRoute.route.stack[0].handle;
   uploadImageHandler = adminApi.default.stack.find((layer) => layer.route?.path === '/media/upload/:batchId').route.stack.at(-1).handle;
   uploadVideoHandler = adminApi.default.stack.find((layer) => layer.route?.path === '/products/:id/video' && layer.route.methods.put).route.stack.at(-1).handle;
+  uploadVideosHandler = adminApi.default.stack.find((layer) => layer.route?.path === '/products/:id/videos' && layer.route.methods.post).route.stack.at(-1).handle;
   requireAdminApi = auth.requireAdminApi;
   requireAdminCsrf = auth.requireAdminCsrf;
 });
@@ -239,7 +250,11 @@ test('catalog and public media route expose only media returned by publication c
   await finishAfter(catalogResponse, () => app.router.stack
     .find((layer) => layer.route?.path === '/api/catalog').route.stack[0].handle(request(), catalogResponse));
   assert.equal(catalogResponse.statusCode, 200);
-  assert.equal(JSON.parse(catalogResponse.body()).products[0].name, 'Trabajo publicado de prueba');
+  const catalogProduct = JSON.parse(catalogResponse.body()).products[0];
+  assert.equal(catalogProduct.name, 'Trabajo publicado de prueba');
+  assert.deepEqual(catalogProduct.videos.map((video) => video.url), ['/media/video/31', '/media/video/32']);
+  assert.match(catalogSql, /pm\.product_id = p\.id/);
+  assert.match(catalogSql, /ma\.media_kind = 'video'/);
 
   const hiddenResponse = new MockResponse();
   await finishAfter(hiddenResponse, () => publicImageHandler(request({ id: '9' }), hiddenResponse));
@@ -261,6 +276,13 @@ test('catalog and public media route expose only media returned by publication c
   assert.equal(videoResponse.statusCode, 206);
   assert.deepEqual(videoResponse.body(), mp4.subarray(4, 8));
   assert.equal(videoResponse.getHeader('content-range'), `bytes 4-7/${mp4.length}`);
+});
+
+test('/api/health reports ready when the database answers its lightweight check', async () => {
+  const response = new MockResponse();
+  await finishAfter(response, () => healthHandler(request(), response));
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(JSON.parse(response.body()), { status: 'ok' });
 });
 
 test('administrative media content requires the authenticated owner session', async () => {
@@ -330,6 +352,7 @@ test('admin deletion confirms Cloudinary before deleting the PostgreSQL referenc
 
 test('administrative image and video upload routes validate and persist Cloudinary references', async () => {
   const insertedStorageKeys = [];
+  let nextVideoMediaId = 22;
   transactionQueryHandler = async (sql, values = []) => {
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) return { rows: [] };
     if (sql.includes('pg_advisory_xact_lock')) return { rows: [] };
@@ -342,7 +365,7 @@ test('administrative image and video upload routes validate and persist Cloudina
       if (sql.includes("VALUES ($1, 'image'")) {
         return { rows: [{ id: 21, original_filename: values[2], mime_type: values[1], byte_size: values[4], created_at: new Date().toISOString() }] };
       }
-      return { rows: [{ id: 22 }] };
+      return { rows: [{ id: nextVideoMediaId++ }] };
     }
     if (sql.includes('INSERT INTO product_media')) return { rows: [] };
     if (sql.includes('INSERT INTO audit_log')) return { rows: [] };
@@ -382,6 +405,23 @@ test('administrative image and video upload routes validate and persist Cloudina
   assert.equal(videoResponse.statusCode, 201);
   assert.match(insertedStorageKeys[1], /^cloudinary:video:[a-f0-9]{64}$/);
   assert.equal(JSON.parse(videoResponse.body()).video.url, '/media/video/22');
+
+  const secondVideoRequest = request({ id: '10' }, {
+    cookie: `carpinteria_admin_session=${sessionToken}`,
+    'x-csrf-token': csrfToken,
+    'x-original-filename': 'detalle.mp4',
+  });
+  secondVideoRequest.method = 'POST';
+  secondVideoRequest.body = mp4;
+  const secondVideoResponse = new MockResponse();
+  await finishAfter(secondVideoResponse, async () => {
+    await requireAdminApi(secondVideoRequest, secondVideoResponse, () => {});
+    requireAdminCsrf(secondVideoRequest, secondVideoResponse, () => {});
+    await uploadVideosHandler(secondVideoRequest, secondVideoResponse);
+  });
+  assert.equal(secondVideoResponse.statusCode, 201);
+  assert.equal(JSON.parse(secondVideoResponse.body()).video.url, '/media/video/23');
+  assert.equal(new Set(insertedStorageKeys.filter((key) => key.startsWith('cloudinary:video:'))).size, 2);
 });
 
 test('admin session fixture uses the project HMAC and encrypted email fields', () => {

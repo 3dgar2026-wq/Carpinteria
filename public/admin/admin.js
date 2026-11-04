@@ -44,10 +44,10 @@ let wizardPendingPhoto = null;
 let wizardPhotoUploadInProgress = false;
 let wizardSaveInProgress = false;
 let wizardExistingMedia = [];
-let wizardExistingVideo = null;
-let wizardSelectedVideo = null;
-let wizardRemoveVideo = false;
-let wizardVideoPreviewUrl = null;
+let wizardExistingVideos = [];
+let wizardSelectedVideos = [];
+let wizardRemovedVideoIds = new Set();
+const wizardVideoPreviewUrls = new Map();
 let wizardMediaOrder = [];
 let wizardCoverKey = null;
 let wizardGalleryDirty = false;
@@ -620,8 +620,7 @@ function renderProductReview() {
     ['Categoría', selectedCategory?.name || 'Falta elegir una categoría'],
     ['Descripción', document.querySelector('#product-description').value.trim() || 'Sin descripción'],
     ['Fotografías', `${retainedMedia.length + uploadedMedia.length + Number(Boolean(wizardPendingPhoto))} seleccionadas${chosenCover ? ' · portada elegida' : ''}`],
-    ['Video', wizardSelectedVideo?.name ?? (wizardRemoveVideo ? 'Se quitará al guardar' : wizardExistingVideo ? 'Video guardado' : 'Sin video')],
-    ['Video', wizardSelectedVideo?.name ?? (wizardRemoveVideo ? 'Se quitará al guardar' : wizardExistingVideo ? 'Video guardado' : 'Sin video')],
+    ['Videos', `${wizardExistingVideos.length - wizardRemovedVideoIds.size} guardados · ${wizardSelectedVideos.length} nuevos`],
     ['Precio', selectedPrice],
     ['Medidas para cotizar', dimensions.length ? dimensions.map((dimension) => dimension.label).join(', ') : 'No se solicitarán medidas'],
     ['Dimensiones fijas', fixedDimensions.length
@@ -646,13 +645,13 @@ function showProductEditor() {
 
 function renderWizardMedia(product) {
   const preview = document.querySelector('#wizard-media-preview');
-  if (wizardVideoPreviewUrl) URL.revokeObjectURL(wizardVideoPreviewUrl);
-  wizardVideoPreviewUrl = null;
+  for (const url of wizardVideoPreviewUrls.values()) URL.revokeObjectURL(url);
+  wizardVideoPreviewUrls.clear();
   const savedMedia = product?.media ?? [];
   wizardExistingMedia = savedMedia.filter((media) => media.kind === 'image').map((media) => ({ ...media, keep: true }));
-  wizardExistingVideo = savedMedia.find((media) => media.kind === 'video') ?? null;
-  wizardSelectedVideo = null;
-  wizardRemoveVideo = false;
+  wizardExistingVideos = savedMedia.filter((media) => media.kind === 'video');
+  wizardSelectedVideos = [];
+  wizardRemovedVideoIds = new Set();
   wizardMediaOrder = wizardExistingMedia.map((media) => `media:${media.id}`);
   wizardCoverKey = wizardExistingMedia.find((media) => media.isCover)
     ? `media:${wizardExistingMedia.find((media) => media.isCover).id}`
@@ -714,34 +713,50 @@ function renderWizardMedia(product) {
 
 function renderWizardVideo() {
   const preview = document.querySelector('#wizard-video-preview');
-  const removeButton = document.querySelector('#wizard-video-remove');
   preview.replaceChildren();
-  if (wizardSelectedVideo) {
-    const player = element('video', 'wizard-video-player');
-    player.controls = true;
-    player.preload = 'metadata';
-    player.muted = true;
-    if (!wizardVideoPreviewUrl) wizardVideoPreviewUrl = URL.createObjectURL(wizardSelectedVideo);
-    player.src = wizardVideoPreviewUrl;
-    preview.append(player, element('p', 'field-help', `${wizardSelectedVideo.name} · video seleccionado; se guardará al guardar el trabajo.`));
-    removeButton.hidden = false;
-    removeButton.textContent = 'Quitar video seleccionado';
-  } else if (wizardExistingVideo && !wizardRemoveVideo) {
+  for (const media of wizardExistingVideos) {
+    const card = element('div', 'wizard-video-item');
     const player = element('video', 'wizard-video-player');
     player.controls = true;
     player.preload = 'none';
     player.muted = true;
-    player.src = wizardExistingVideo.adminUrl;
-    preview.append(player, element('p', 'field-help', `${wizardExistingVideo.originalFilename || 'Video guardado'} · asociado a este trabajo.`));
-    removeButton.hidden = false;
-    removeButton.textContent = 'Quitar video al guardar';
-  } else if (wizardRemoveVideo) {
-    preview.append(element('p', 'field-help', 'El video se retirará al guardar; las fotografías permanecerán asociadas.'));
-    removeButton.hidden = false;
-    removeButton.textContent = 'Conservar video';
-  } else {
-    preview.append(element('p', 'field-help', 'Este trabajo no tiene un video asociado.'));
-    removeButton.hidden = true;
+    player.src = media.adminUrl;
+    const remove = makeButton(
+      wizardRemovedVideoIds.has(String(media.id)) ? 'Conservar video' : 'Quitar este video',
+      'button button-text',
+      () => {
+        const id = String(media.id);
+        if (wizardRemovedVideoIds.has(id)) wizardRemovedVideoIds.delete(id);
+        else wizardRemovedVideoIds.add(id);
+        renderWizardVideo();
+        if (currentWizardStep === 5) renderProductReview();
+      },
+    );
+    card.append(player, element('p', 'field-help', `${media.originalFilename || 'Video guardado'} · asociado a este trabajo.`), remove);
+    if (wizardRemovedVideoIds.has(String(media.id))) card.classList.add('is-marked-for-removal');
+    preview.append(card);
+  }
+  for (const file of wizardSelectedVideos) {
+    const card = element('div', 'wizard-video-item');
+    const player = element('video', 'wizard-video-player');
+    player.controls = true;
+    player.preload = 'metadata';
+    player.muted = true;
+    if (!wizardVideoPreviewUrls.has(file)) wizardVideoPreviewUrls.set(file, URL.createObjectURL(file));
+    player.src = wizardVideoPreviewUrls.get(file);
+    const remove = makeButton('Quitar video seleccionado', 'button button-text', () => {
+      const url = wizardVideoPreviewUrls.get(file);
+      if (url) URL.revokeObjectURL(url);
+      wizardVideoPreviewUrls.delete(file);
+      wizardSelectedVideos = wizardSelectedVideos.filter((selected) => selected !== file);
+      renderWizardVideo();
+      if (currentWizardStep === 5) renderProductReview();
+    });
+    card.append(player, element('p', 'field-help', `${file.name} · se agregará al guardar el trabajo.`), remove);
+    preview.append(card);
+  }
+  if (!wizardExistingVideos.length && !wizardSelectedVideos.length) {
+    preview.append(element('p', 'field-help', 'Este trabajo todavía no tiene videos asociados.'));
   }
   const input = document.querySelector('#wizard-video-file');
   input.disabled = false;
@@ -767,19 +782,19 @@ function validateWizardVideoFile(file) {
 
 async function saveWizardVideo(productId) {
   const status = document.querySelector('#wizard-video-status');
-  if (wizardSelectedVideo) {
-    const error = validateWizardVideoFile(wizardSelectedVideo);
+  for (const file of [...wizardSelectedVideos]) {
+    const error = validateWizardVideoFile(file);
     if (error) throw new Error(error);
-    status.textContent = 'Subiendo video…';
+    status.textContent = `Subiendo ${file.name}…`;
     status.dataset.state = 'loading';
     let result;
     try {
-      result = await api(`/api/admin/products/${encodeURIComponent(String(productId))}/video`, {
-        method: 'PUT',
-        body: wizardSelectedVideo,
+      result = await api(`/api/admin/products/${encodeURIComponent(String(productId))}/videos`, {
+        method: 'POST',
+        body: file,
         headers: {
           'Content-Type': 'application/octet-stream',
-          'X-Original-Filename': encodeURIComponent(wizardSelectedVideo.name),
+          'X-Original-Filename': encodeURIComponent(file.name),
         },
       });
     } catch (error) {
@@ -787,25 +802,25 @@ async function saveWizardVideo(productId) {
       status.dataset.state = 'error';
       throw error;
     }
-    if (wizardVideoPreviewUrl) URL.revokeObjectURL(wizardVideoPreviewUrl);
-    wizardVideoPreviewUrl = null;
-    wizardExistingVideo = {
+    const previewUrl = wizardVideoPreviewUrls.get(file);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    wizardVideoPreviewUrls.delete(file);
+    wizardExistingVideos.push({
       id: result.video.id,
       kind: 'video',
-      adminUrl: `/api/admin/products/${encodeURIComponent(String(productId))}/video/content`,
-      originalFilename: wizardSelectedVideo.name,
-    };
-    wizardSelectedVideo = null;
-    wizardRemoveVideo = false;
-    renderWizardVideo();
-    status.textContent = result.message || 'Video guardado y asociado al trabajo.';
+      adminUrl: `/api/admin/products/${encodeURIComponent(String(productId))}/videos/${encodeURIComponent(String(result.video.id))}/content`,
+      originalFilename: file.name,
+    });
+    wizardSelectedVideos = wizardSelectedVideos.filter((selected) => selected !== file);
+    status.textContent = result.message || 'Video agregado al trabajo.';
     status.dataset.state = 'success';
-  } else if (wizardRemoveVideo && wizardExistingVideo) {
+  }
+  for (const mediaId of [...wizardRemovedVideoIds]) {
     status.textContent = 'Quitando video…';
     status.dataset.state = 'loading';
     let result;
     try {
-      result = await api(`/api/admin/products/${encodeURIComponent(String(productId))}/video`, {
+      result = await api(`/api/admin/products/${encodeURIComponent(String(productId))}/videos/${encodeURIComponent(mediaId)}`, {
         method: 'DELETE',
         body: '{}',
       });
@@ -814,12 +829,12 @@ async function saveWizardVideo(productId) {
       status.dataset.state = 'error';
       throw error;
     }
-    wizardExistingVideo = null;
-    wizardRemoveVideo = false;
-    renderWizardVideo();
+    wizardExistingVideos = wizardExistingVideos.filter((media) => String(media.id) !== mediaId);
+    wizardRemovedVideoIds.delete(mediaId);
     status.textContent = result.message || 'Video retirado del trabajo.';
     status.dataset.state = 'success';
   }
+  renderWizardVideo();
 }
 
 function resolveWizardCover() {
@@ -1125,8 +1140,8 @@ function resetCategoryForm() {
 }
 
 function resetProductForm() {
-  if (wizardVideoPreviewUrl) URL.revokeObjectURL(wizardVideoPreviewUrl);
-  wizardVideoPreviewUrl = null;
+  for (const url of wizardVideoPreviewUrls.values()) URL.revokeObjectURL(url);
+  wizardVideoPreviewUrls.clear();
   productForm.reset();
   productForm.hidden = false;
   document.querySelector('#product-save-result').hidden = true;
@@ -1138,9 +1153,9 @@ function resetProductForm() {
   wizardPhotoUploadInProgress = false;
   wizardPendingPhoto = null;
   wizardExistingMedia = [];
-  wizardExistingVideo = null;
-  wizardSelectedVideo = null;
-  wizardRemoveVideo = false;
+  wizardExistingVideos = [];
+  wizardSelectedVideos = [];
+  wizardRemovedVideoIds = new Set();
   wizardMediaOrder = [];
   wizardCoverKey = null;
   wizardGalleryDirty = false;
@@ -2421,14 +2436,13 @@ function goToNextWizardStep() {
         (retry ? document.querySelector('#wizard-photo-retry') : document.querySelector('#wizard-photo-upload')).focus();
         return;
       }
-      if (wizardSelectedVideo) {
-        const videoError = validateWizardVideoFile(wizardSelectedVideo);
-        if (videoError) {
-          document.querySelector('#wizard-video-status').textContent = videoError;
-          document.querySelector('#wizard-video-status').dataset.state = 'error';
-          document.querySelector('#wizard-video-file').focus();
-          return;
-        }
+      const invalidVideo = wizardSelectedVideos.map((file) => ({ file, error: validateWizardVideoFile(file) })).find((entry) => entry.error);
+      if (invalidVideo) {
+        const videoError = invalidVideo.error;
+        document.querySelector('#wizard-video-status').textContent = `${invalidVideo.file.name}: ${videoError}`;
+        document.querySelector('#wizard-video-status').dataset.state = 'error';
+        document.querySelector('#wizard-video-file').focus();
+        return;
       }
     }
     if (currentWizardStep === 4) {
@@ -2499,33 +2513,20 @@ document.querySelector('#wizard-photo-files').addEventListener('change', (event)
   event.target.value = '';
 });
 document.querySelector('#wizard-video-file').addEventListener('change', (event) => {
-  const file = event.target.files[0];
+  const files = [...event.target.files];
   event.target.value = '';
-  if (!file) return;
-  const error = validateWizardVideoFile(file);
+  if (!files.length) return;
   const status = document.querySelector('#wizard-video-status');
-  if (error) {
-    status.textContent = error;
+  const invalid = files.map((file) => ({ file, error: validateWizardVideoFile(file) })).filter((entry) => entry.error);
+  if (invalid.length) {
+    status.textContent = invalid.map(({ file, error }) => `${file.name}: ${error}`).join(' ');
     status.dataset.state = 'error';
-    showNotification(error, { type: 'error' });
-    return;
+    showNotification('Uno o más videos no cumplen con los formatos o límites permitidos.', { type: 'error' });
   }
-  if (wizardVideoPreviewUrl) URL.revokeObjectURL(wizardVideoPreviewUrl);
-  wizardVideoPreviewUrl = null;
-  wizardSelectedVideo = file;
-  wizardRemoveVideo = false;
-  status.textContent = 'Video listo para guardar con el trabajo.';
-  status.dataset.state = 'success';
-  renderWizardVideo();
-  if (currentWizardStep === 5) renderProductReview();
-});
-document.querySelector('#wizard-video-remove').addEventListener('click', () => {
-  if (wizardSelectedVideo) {
-    if (wizardVideoPreviewUrl) URL.revokeObjectURL(wizardVideoPreviewUrl);
-    wizardVideoPreviewUrl = null;
-    wizardSelectedVideo = null;
-  } else if (wizardExistingVideo) {
-    wizardRemoveVideo = !wizardRemoveVideo;
+  wizardSelectedVideos.push(...files.filter((file) => !invalid.some((entry) => entry.file === file)));
+  if (!invalid.length) {
+    status.textContent = `${files.length} video${files.length === 1 ? '' : 's'} listo${files.length === 1 ? '' : 's'} para guardar con el trabajo.`;
+    status.dataset.state = 'success';
   }
   renderWizardVideo();
   if (currentWizardStep === 5) renderProductReview();

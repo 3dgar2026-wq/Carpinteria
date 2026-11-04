@@ -138,6 +138,10 @@
 .wizard-gallery-grid, .wizard-cover-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
 .wizard-gallery-card, .wizard-cover-option { min-width: 0; padding: .65rem; border: 1px solid rgba(20,40,61,.18); background: var(--color-white); }
 .wizard-gallery-card img, .wizard-cover-option img { width: 100%; aspect-ratio: 4 / 3; display: block; object-fit: cover; background: var(--color-warm-parchment); }
+.wizard-video-preview { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: .75rem; }
+.wizard-video-item { min-width: 0; padding: .65rem; border: 1px solid rgba(20,40,61,.18); background: var(--color-white); }
+.wizard-video-item.is-marked-for-removal { border-color: var(--color-burnt-wine); opacity: .7; }
+.wizard-video-player { width: 100%; aspect-ratio: 16 / 9; display: block; background: var(--color-warm-parchment); }
 .wizard-gallery-card label, .wizard-cover-option label { display: flex; align-items: center; gap: .45rem; margin-top: .55rem; font-size: .84rem; }
 .wizard-gallery-card input, .wizard-cover-option input { width: 1.1rem; height: 1.1rem; accent-color: var(--night); }
 .wizard-photo-order-actions { margin-top: .35rem; display: flex; gap: .65rem; }

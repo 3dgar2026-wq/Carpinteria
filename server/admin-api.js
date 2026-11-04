@@ -121,6 +121,21 @@ function slugFromProductName(name) {
   return slug;
 }
 
+async function uniqueProductSlug(client, preferredSlug, exceptId = null) {
+  const base = validatedSlug(preferredSlug);
+  await client.query('SELECT pg_advisory_xact_lock(712498121)');
+  for (let suffix = 1; suffix < 10000; suffix += 1) {
+    const candidate = suffix === 1 ? base : `${base.slice(0, 120 - String(suffix).length - 1)}-${suffix}`;
+    const { rows } = await client.query(`
+      SELECT 1 FROM products
+      WHERE slug = $1 AND ($2::bigint IS NULL OR id <> $2)
+      LIMIT 1
+    `, [candidate, exceptId]);
+    if (!rows.length) return candidate;
+  }
+  throw new AdminInputError('No se pudo crear un identificador único para este trabajo.', 409);
+}
+
 async function sendMediaFile(response, storageKey, mimeType, cacheControl) {
   response.set({
     'Content-Type': mimeType,
@@ -739,6 +754,11 @@ router.post('/media/:id/assign', async (request, response) => {
       [productId, mediaId],
     );
     if (existingLinks.length) throw new AdminInputError('Esta fotografía ya pertenece a ese trabajo.', 409);
+    const { rows: otherLinks } = await client.query(
+      'SELECT 1 FROM product_media WHERE media_asset_id = $1 AND product_id <> $2 LIMIT 1',
+      [mediaId, productId],
+    );
+    if (otherLinks.length) throw new AdminInputError('Esta fotografía ya pertenece a otro trabajo y no se puede reutilizar.', 409);
 
     await client.query(`
       INSERT INTO product_media (product_id, media_asset_id, sort_order, is_cover)
@@ -779,7 +799,7 @@ router.post('/media/classify', async (request, response) => {
     if (isNewProduct) {
       const input = request.body.newProduct;
       const name = requiredText(input.name, 'El nombre del producto', 180);
-      const slug = slugFromProductName(name);
+      const slug = await uniqueProductSlug(client, slugFromProductName(name));
       const description = optionalText(input.description, 'La descripción', 5000);
       const categoryId = validatedId(input.categoryId, 'La categoría');
       const { rows: categoryRows } = await client.query(
@@ -867,7 +887,7 @@ router.get('/products', async (_request, response) => {
                  'isCover', pm.is_cover,
                  'isPublic', ${mediaVisibility},
                  'adminUrl', CASE WHEN ma.media_kind = 'video'
-                   THEN '/api/admin/products/' || p.id::text || '/video/content'
+                   THEN '/api/admin/products/' || p.id::text || '/videos/' || ma.id::text || '/content'
                    ELSE '/api/admin/media/' || ma.id::text || '/content'
                  END
                ) ORDER BY pm.is_cover DESC, pm.sort_order, ma.id) FILTER (WHERE ma.id IS NOT NULL),
@@ -878,7 +898,7 @@ router.get('/products', async (_request, response) => {
       LEFT JOIN product_media pm ON pm.product_id = p.id
       LEFT JOIN media_assets ma ON ma.id = pm.media_asset_id
       GROUP BY p.id, c.name, c.is_active
-      ORDER BY p.sort_order, p.name
+      ORDER BY p.sort_order, p.name, p.id
     `);
     response.json({ products: rows, maxVideoFileBytes });
   } catch {
@@ -990,7 +1010,7 @@ router.put('/products/:id/media', async (request, response) => {
   }
 });
 
-router.put('/products/:id/video', express.raw({ type: 'application/octet-stream', limit: maxVideoFileBytes, inflate: false }), async (request, response) => {
+const appendProductVideo = async (request, response) => {
   let productId;
   try { productId = validatedId(request.params.id, 'El trabajo'); }
   catch (error) { return response.status(error.status ?? 400).json({ error: error.message }); }
@@ -1009,37 +1029,10 @@ router.put('/products/:id/video', express.raw({ type: 'application/octet-stream'
     return response.status(503).json({ error: 'No fue posible guardar el video. Puedes volver a intentarlo.' });
   }
 
-  let previousLocalStorageKeys = [];
-  const remoteBackups = [];
   let commitAttempted = false;
   const result = await withAdminTransaction(response, async (client) => {
     const { rows: productRows } = await client.query('SELECT id FROM products WHERE id = $1 FOR UPDATE', [productId]);
     if (!productRows.length) throw new AdminInputError('No se encontró el trabajo.', 404);
-    const { rows: previousRows } = await client.query(`
-      SELECT ma.id, ma.storage_key
-      FROM product_media pm
-      JOIN media_assets ma ON ma.id = pm.media_asset_id
-      WHERE pm.product_id = $1 AND ma.media_kind = 'video'
-      ORDER BY pm.sort_order, ma.id
-      FOR UPDATE OF ma
-    `, [productId]);
-    for (const previous of previousRows) {
-      assertStoredMediaKeyAllowed(previous.storage_key, true);
-      const { rows: otherReferences } = await client.query(
-        'SELECT 1 FROM product_media WHERE media_asset_id = $1 AND product_id <> $2 LIMIT 1',
-        [previous.id, productId],
-      );
-      if (!otherReferences.length && isCloudinaryStorageKey(previous.storage_key)) {
-        try {
-          const backup = await snapshotStoredVideo(previous.storage_key);
-          if (backup) remoteBackups.push({ storageKey: previous.storage_key, bytes: backup.bytes });
-          await removeStoredVideo(previous.storage_key);
-        } catch (error) {
-          logMediaFailure('reemplazo de video remoto', error);
-          throw error;
-        }
-      }
-    }
     const { rows: insertedRows } = await client.query(`
       INSERT INTO media_assets (
         storage_key, media_kind, mime_type, original_filename,
@@ -1051,31 +1044,14 @@ router.put('/products/:id/video', express.raw({ type: 'application/octet-stream'
       INSERT INTO product_media (product_id, media_asset_id, sort_order, is_cover)
       VALUES ($1, $2, COALESCE((SELECT max(sort_order) + 1 FROM product_media WHERE product_id = $1), 0), FALSE)
     `, [productId, insertedRows[0].id]);
-    for (const previous of previousRows) {
-      await client.query('DELETE FROM product_media WHERE product_id = $1 AND media_asset_id = $2', [productId, previous.id]);
-      const { rows: removedRows } = await client.query(`
-        DELETE FROM media_assets ma
-        WHERE ma.id = $1 AND NOT EXISTS (
-          SELECT 1 FROM product_media pm WHERE pm.media_asset_id = ma.id
-        )
-        RETURNING storage_key
-      `, [previous.id]);
-      if (removedRows[0]?.storage_key && !isCloudinaryStorageKey(removedRows[0].storage_key)) {
-        previousLocalStorageKeys.push(removedRows[0].storage_key);
-      }
-    }
     await auditAdminAction(client, request.adminSession.id, 'product.video.updated', 'product', productId, {
       byteSize: request.body.length,
       mimeType: format.mimeType,
-      replaced: previousRows.length > 0,
+      appended: true,
     });
     return { productId, mediaId: insertedRows[0].id, mimeType: format.mimeType };
   }, { onCommitAttempt: () => { commitAttempted = true; } });
   if (result === null) {
-    for (const backup of remoteBackups) {
-      try { await restoreStoredVideo(backup.storageKey, backup.bytes); }
-      catch (error) { logMediaFailure('restauración de video tras rollback', error); }
-    }
     if (!commitAttempted) {
       try { await removeStoredVideo(storageKey); }
       catch (error) { logMediaFailure('limpieza de video interrumpido', error); }
@@ -1084,13 +1060,62 @@ router.put('/products/:id/video', express.raw({ type: 'application/octet-stream'
     }
     return;
   }
-  await Promise.all(previousLocalStorageKeys.map((key) => removeStoredVideo(key).catch((error) => {
-    logMediaFailure('limpieza de video local', error);
-  })));
   response.status(201).json({
     video: { id: result.mediaId, mimeType: result.mimeType, url: `/media/video/${result.mediaId}` },
-    message: 'Video guardado y asociado al trabajo.',
+    message: 'Video agregado a la galería del trabajo.',
   });
+};
+router.post('/products/:id/videos', express.raw({ type: 'application/octet-stream', limit: maxVideoFileBytes, inflate: false }), appendProductVideo);
+router.put('/products/:id/video', express.raw({ type: 'application/octet-stream', limit: maxVideoFileBytes, inflate: false }), appendProductVideo);
+
+router.delete('/products/:id/videos/:mediaId', async (request, response) => {
+  const remoteBackups = [];
+  const result = await withAdminTransaction(response, async (client) => {
+    const productId = validatedId(request.params.id, 'El trabajo');
+    const mediaId = validatedId(request.params.mediaId, 'El video');
+    const { rows } = await client.query(`
+      SELECT ma.id, ma.storage_key
+      FROM product_media pm
+      JOIN media_assets ma ON ma.id = pm.media_asset_id
+      WHERE pm.product_id = $1 AND ma.id = $2 AND ma.media_kind = 'video'
+      FOR UPDATE OF ma
+    `, [productId, mediaId]);
+    if (!rows.length) throw new AdminInputError('No se encontró el video en este trabajo.', 404);
+    const video = rows[0];
+    assertStoredMediaKeyAllowed(video.storage_key, true);
+    const { rows: otherReferences } = await client.query(
+      'SELECT 1 FROM product_media WHERE media_asset_id = $1 AND product_id <> $2 LIMIT 1',
+      [video.id, productId],
+    );
+    if (!otherReferences.length && isCloudinaryStorageKey(video.storage_key)) {
+      const backup = await snapshotStoredVideo(video.storage_key);
+      if (backup) remoteBackups.push({ storageKey: video.storage_key, bytes: backup.bytes });
+      await removeStoredVideo(video.storage_key);
+    }
+    await client.query('DELETE FROM product_media WHERE product_id = $1 AND media_asset_id = $2', [productId, video.id]);
+    const { rows: removedRows } = await client.query(`
+      DELETE FROM media_assets ma
+      WHERE ma.id = $1 AND NOT EXISTS (
+        SELECT 1 FROM product_media pm WHERE pm.media_asset_id = ma.id
+      )
+      RETURNING storage_key
+    `, [video.id]);
+    await auditAdminAction(client, request.adminSession.id, 'product.video.removed', 'product', productId, {
+      mediaId: video.id,
+    });
+    return { storageKey: removedRows[0]?.storage_key ?? null };
+  });
+  if (result === null) {
+    for (const backup of remoteBackups) {
+      try { await restoreStoredVideo(backup.storageKey, backup.bytes); }
+      catch (error) { logMediaFailure('restauración de video tras rollback', error); }
+    }
+  } else {
+    if (result.storageKey && !isCloudinaryStorageKey(result.storageKey)) {
+      await removeStoredVideo(result.storageKey).catch((error) => logMediaFailure('eliminación de video local', error));
+    }
+    response.json({ message: 'Video retirado del trabajo; los demás archivos permanecen asociados.' });
+  }
 });
 
 router.delete('/products/:id/video', async (request, response) => {
@@ -1156,6 +1181,36 @@ router.delete('/products/:id/video', async (request, response) => {
   }
 });
 
+router.get('/products/:id/videos/:mediaId/content', async (request, response) => {
+  let productId;
+  let mediaId;
+  try {
+    productId = validatedId(request.params.id, 'El trabajo');
+    mediaId = validatedId(request.params.mediaId, 'El video');
+  } catch (error) {
+    return response.status(error.status ?? 400).json({ error: error.message });
+  }
+  try {
+    const { rows } = await query(`
+      SELECT ma.storage_key, ma.mime_type
+      FROM product_media pm
+      JOIN media_assets ma ON ma.id = pm.media_asset_id
+      WHERE pm.product_id = $1 AND ma.id = $2 AND ma.media_kind = 'video'
+    `, [productId, mediaId]);
+    if (!rows.length || !['video/mp4', 'video/webm'].includes(rows[0].mime_type)) {
+      return response.status(404).json({ error: 'No se encontró el video del trabajo.' });
+    }
+    return streamVideo(request, response, rows[0].storage_key, rows[0].mime_type);
+  } catch (error) {
+    if (!response.headersSent) {
+      const unavailable = error?.code && error.code !== 'ENOENT';
+      response.status(unavailable ? 503 : 404).json({
+        error: unavailable ? 'No fue posible recuperar el video del trabajo.' : 'No se encontró el video del trabajo.',
+      });
+    }
+  }
+});
+
 router.get('/products/:id/video/content', async (request, response) => {
   let productId;
   try { productId = validatedId(request.params.id, 'El trabajo'); }
@@ -1186,7 +1241,7 @@ router.post('/products', async (request, response) => {
   if (!objectBody(request.body)) return response.status(400).json({ error: 'Revisa los datos del trabajo.' });
   const result = await withAdminTransaction(response, async (client) => {
     const name = requiredText(request.body.name, 'El nombre', 180);
-    const slug = validatedSlug(request.body.slug);
+    const slug = await uniqueProductSlug(client, validatedSlug(request.body.slug));
     const description = optionalText(request.body.description, 'La descripción', 5000);
     const category = await categoryIdFromBody(client, request.body);
     const measurementConfig = parseConfig(request.body, 'measurementConfig', validatedMeasurementConfig, 'medidas');
@@ -1229,7 +1284,7 @@ router.patch('/products/:id', async (request, response) => {
   const result = await withAdminTransaction(response, async (client) => {
     const id = validatedId(request.params.id);
     const name = requiredText(request.body.name, 'El nombre', 180);
-    const slug = validatedSlug(request.body.slug);
+    const slug = await uniqueProductSlug(client, validatedSlug(request.body.slug), id);
     const description = optionalText(request.body.description, 'La descripción', 5000);
     const category = await categoryIdFromBody(client, request.body);
     const measurementConfig = parseConfig(request.body, 'measurementConfig', validatedMeasurementConfig, 'medidas');

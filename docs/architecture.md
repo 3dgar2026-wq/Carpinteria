@@ -41,3 +41,7 @@ Render es el servicio web y usa `npm ci`, `node server/index.js` y health check 
 4. Catálogo público conectado a PostgreSQL.
 5. Cotizaciones y contacto mediante canal configurado.
 6. Administración ampliada, SMTP, pruebas aisladas, despliegue y validación.
+
+## Cotizaciones por WhatsApp
+
+El catálogo usa un enlace Click to Chat (`wa.me`) para abrir la conversación con un texto prellenado. La solicitud contiene enlaces absolutos a las fotografías y videos públicos asociados a cada producto seleccionado; este enlace no adjunta los archivos. Para enviar medios automáticamente se necesitaría una integración backend con WhatsApp Business Platform Cloud API, un número de teléfono registrado, credenciales de Meta, carga o referencias de medios admitidas y una llamada al endpoint de mensajes. Esa integración y sus costos/condiciones no están configurados ni se incorporan en esta mejora.

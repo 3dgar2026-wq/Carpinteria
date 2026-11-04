@@ -67,6 +67,24 @@ export function createApp({
           ) AS visible
         ), '[]'::json) AS media
       ` : "'[]'::json AS media";
+      const videosSelection = canVerifyMedia ? `COALESCE((
+        SELECT json_agg(json_build_object(
+          'id', visible_video.id,
+          'mimeType', visible_video.mime_type,
+          'url', '/media/video/' || visible_video.id::text
+        ) ORDER BY visible_video.sort_order, visible_video.id)
+        FROM (
+          SELECT ma.id, ma.mime_type, pm.sort_order
+          FROM product_media pm
+          JOIN media_assets ma ON ma.id = pm.media_asset_id
+          WHERE pm.product_id = p.id
+            AND ma.media_kind = 'video'
+            AND ma.classification_status = 'assigned'
+            AND ma.is_public IS TRUE
+          ORDER BY pm.sort_order, ma.id
+          LIMIT 8
+        ) AS visible_video
+      ), '[]'::json) AS videos` : "'[]'::json AS videos";
       const videoSelection = canVerifyMedia ? `(
         SELECT json_build_object(
           'id', visible_video.id,
@@ -86,11 +104,11 @@ export function createApp({
         SELECT p.id, p.name, p.slug, p.description, p.price, p.currency,
                p.measurement_config, p.dimensions,
                c.name AS category_name, c.slug AS category_slug,
-               ${mediaSelection}, ${videoSelection}
+               ${mediaSelection}, ${videosSelection}, ${videoSelection}
         FROM products p
         LEFT JOIN categories c ON c.id = p.category_id
         WHERE p.is_published = TRUE
-        ORDER BY p.sort_order, p.name
+        ORDER BY p.sort_order, p.name, p.id
       `);
       response.json({
         products: rows.map(({ dimensions, ...product }) => ({
