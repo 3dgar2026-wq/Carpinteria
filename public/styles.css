@@ -276,6 +276,7 @@ body.has-image-viewer { overflow: hidden; }
 @media (max-width: 760px) {
   :root { --space-page: 1.25rem; }
   html { scroll-padding-top: 4.25rem; }
+  .product-details-dialog { height: fit-content; max-height: calc(100dvh - 2rem); overflow-y: auto; }
   .site-header { min-height: 4.25rem; gap: 1rem; }
   .site-header-overlay { min-height: 4.25rem; }
   .wordmark { font-size: 1.55rem; }
@@ -335,7 +336,7 @@ body.has-image-viewer { overflow: hidden; }
   .request-actions #send-whatsapp { grid-column: 1 / -1; }
   .request-actions .button { width: 100%; min-width: 0; padding-inline: .5rem; }
   .request-actions #clear-request { font-size: .68rem; }
-  .product-details-dialog { width: min(94vw, 56rem); max-height: calc(100dvh - 1rem); overflow-y: auto; }
+  .product-details-dialog { width: min(94vw, 56rem); }
   .product-details-panel { padding: .85rem; }
   .product-detail-photo { min-height: 10rem; }
   .product-detail-title { font-size: 2rem; }
