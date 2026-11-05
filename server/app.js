@@ -2,7 +2,6 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query as defaultQuery } from './db.js';
-import { calculateConfiguredEstimate, InvalidMeasurementError } from './pricing.js';
 import { normalizeFixedDimensions } from './fixed-dimensions.js';
 import * as defaultMediaStorage from './media-storage.js';
 import { hasVerifiablePublicMediaColumns } from './media-schema.js';
@@ -40,6 +39,11 @@ export function createApp({
     } catch {
       response.status(503).json({ status: 'unavailable' });
     }
+  });
+
+  app.get('/api/contact', (_request, response) => {
+    const whatsapp = String(process.env.WHATSAPP_PHONE ?? '573233785300').replace(/\D/g, '');
+    response.set('Cache-Control', 'no-store').json({ whatsapp: /^\d{8,15}$/.test(whatsapp) ? whatsapp : null });
   });
 
   app.get('/api/catalog', async (_request, response) => {
@@ -101,7 +105,7 @@ export function createApp({
         LIMIT 1
       ) AS video` : 'NULL::json AS video';
       const { rows } = await query(`
-        SELECT p.id, p.name, p.slug, p.description, p.price, p.currency,
+        SELECT p.id, p.name, p.slug, p.description,
                p.measurement_config, p.dimensions,
                c.name AS category_name, c.slug AS category_slug,
                ${mediaSelection}, ${videosSelection}, ${videoSelection}
@@ -230,45 +234,6 @@ export function createApp({
       stream.pipe(response);
     } catch {
       if (!response.headersSent) response.status(503).send('No fue posible recuperar el video.');
-    }
-  });
-
-  app.post('/api/catalog/:id/estimate', async (request, response) => {
-    const { id } = request.params;
-    const maxId = '9223372036854775807';
-    if (!/^[1-9]\d{0,18}$/.test(id) || (id.length === 19 && id > maxId)) {
-      return response.status(400).json({ error: 'El trabajo indicado no es válido.' });
-    }
-
-    const body = request.body;
-    if (!body || typeof body !== 'object' || Array.isArray(body)
-      || !body.measurements || typeof body.measurements !== 'object' || Array.isArray(body.measurements)) {
-      return response.status(400).json({ error: 'Revisa las medidas enviadas.' });
-    }
-
-    try {
-      const { rows } = await query(`
-        SELECT p.measurement_config, p.pricing_rules,
-               c.pricing_rules AS category_pricing_rules
-        FROM products p
-        LEFT JOIN categories c ON c.id = p.category_id
-        WHERE p.id = $1 AND p.is_published = TRUE
-      `, [id]);
-
-      if (!rows.length) return response.status(404).json({ error: 'No se encontró el trabajo publicado.' });
-
-      const product = rows[0];
-      const result = calculateConfiguredEstimate({
-        measurementConfig: product.measurement_config,
-        pricingRule: product.pricing_rules ?? product.category_pricing_rules,
-        measurements: body.measurements,
-      });
-      response.json(result);
-    } catch (error) {
-      if (error instanceof InvalidMeasurementError) {
-        return response.status(422).json({ error: 'Revisa las medidas y los límites indicados.' });
-      }
-      response.status(503).json({ error: 'No fue posible calcular el precio en este momento.' });
     }
   });
 

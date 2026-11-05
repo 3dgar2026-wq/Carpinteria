@@ -64,7 +64,7 @@
             <li data-progress-step="1" aria-current="step"><span>1</span><small>Datos</small></li>
             <li data-progress-step="2"><span>2</span><small>Categoría</small></li>
             <li data-progress-step="3"><span>3</span><small>Fotografías</small></li>
-            <li data-progress-step="4"><span>4</span><small>Precio y medidas</small></li>
+            <li data-progress-step="4"><span>4</span><small>Medidas</small></li>
             <li data-progress-step="5"><span>5</span><small>Revisar y guardar</small></li>
           </ol>
 
@@ -144,24 +144,7 @@
 
           <section class="wizard-step" data-wizard-step="4" aria-labelledby="wizard-step-four-title" hidden>
             <p class="eyebrow">Paso 4 de 5</p>
-            <h3 id="wizard-step-four-title" tabindex="-1">Precio y medidas</h3>
-            <fieldset class="product-price-settings">
-              <legend>¿Cómo se manejará el precio de este mueble?</legend>
-              <label class="price-mode-option"><input id="product-price-mode-quote" name="productPriceMode" type="radio" value="quote" checked><span><strong>Precio por cotizar</strong><small>El cliente solicitará una cotización.</small></span></label>
-              <label class="price-mode-option"><input id="product-price-mode-defined" name="productPriceMode" type="radio" value="defined"><span><strong>Precio definido</strong></span></label>
-              <div id="product-price-entry" hidden>
-                <label class="field-label" for="product-price">Precio del mueble</label>
-                <div class="product-price-input"><input id="product-price" type="text" inputmode="decimal" autocomplete="off" placeholder="Ej. 250000"><span id="product-price-currency">COP</span></div>
-                <p class="field-help">Escribe el valor en pesos, sin separador de miles. Se permiten hasta dos decimales.</p>
-              </div>
-            </fieldset>
-            <details class="advanced-settings">
-              <summary>Opciones avanzadas de precio</summary>
-              <p class="field-help">Completa esta regla solo si ya fue definida y aprobada para el negocio. Puedes dejarla vacía para recibir solicitudes de cotización.</p>
-              <label class="field-label" for="product-pricing-rules">Regla de precio aprobada</label>
-              <textarea id="product-pricing-rules" name="pricingRules" rows="7" spellcheck="false" aria-describedby="product-pricing-help"></textarea>
-              <p id="product-pricing-help" class="field-help">La regla del mueble tiene prioridad sobre la de su categoría. Las medidas que use deben estar configuradas abajo.</p>
-            </details>
+            <h3 id="wizard-step-four-title" tabindex="-1">Medidas y características</h3>
             <fieldset class="dimension-editor customer-measurements-editor">
               <legend>¿Qué medidas necesitas configurar?</legend>
               <p class="field-help">Agrega medidas solo si el cliente debe proporcionarlas para solicitar una cotización.</p>
@@ -191,13 +174,13 @@
               <button class="button button-text" type="button" data-review-step="1">Editar datos</button>
               <button class="button button-text" type="button" data-review-step="2">Cambiar categoría</button>
               <button class="button button-text" type="button" data-review-step="3">Revisar fotografías</button>
-              <button class="button button-text" type="button" data-review-step="4">Cambiar precio o medidas</button>
+              <button class="button button-text" type="button" data-review-step="4">Cambiar medidas</button>
             </div>
             <div class="save-choice">
               <p id="save-draft-choice"><strong>Guardar mueble</strong><br>Se guardará como borrador y permanecerá oculto a tus clientes.</p>
               <p id="save-publish-choice"><strong>Guardar y publicar</strong><br>Esta acción es explícita. Las fotografías nuevas seguirán ocultas hasta que decidas mostrarlas.</p>
             </div>
-            <p id="publish-requirements" class="field-help">Para publicar, el sistema requiere una categoría activa y reglas de precio compatibles con las medidas.</p>
+            <p id="publish-requirements" class="field-help">Para publicar, el trabajo debe tener una categoría activa.</p>
             <div class="admin-actions wizard-save-actions">
               <button id="save-draft-button" class="button button-dark" type="submit" data-save-mode="draft">Guardar mueble</button>
               <button id="save-publish-button" class="button button-outline" type="submit" data-save-mode="publish">Guardar y publicar</button>
@@ -345,12 +328,6 @@
                 </div>
               </div>
             </fieldset>
-            <details class="advanced-settings">
-              <summary>Regla de precio de esta categoría</summary>
-              <label class="field-label" for="category-pricing-rules">Regla aprobada (JSON)</label>
-              <textarea id="category-pricing-rules" name="pricingRules" rows="5" spellcheck="false" aria-describedby="category-pricing-help"></textarea>
-              <p id="category-pricing-help" class="field-help">Déjala vacía si aún no hay una regla comercial aprobada. Sigue el formato de docs/pricing-rules.md.</p>
-            </details>
             <label class="check-field"><input id="category-active" type="checkbox" checked> Categoría activa</label>
             <div class="admin-actions">
               <button class="button button-dark" type="submit">Guardar categoría</button>

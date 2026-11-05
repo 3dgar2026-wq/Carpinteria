@@ -163,15 +163,6 @@ function toSlug(value) {
     .toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
-function parseRule(text) {
-  if (!text.trim()) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error('La regla de precio debe ser JSON válido o quedar vacía.');
-  }
-}
-
 function parseDecimal(value, label, allowEmpty = false) {
   const normalized = value.trim().replace(',', '.');
   if (!normalized && allowEmpty) return null;
@@ -437,57 +428,12 @@ function renderFixedDimensionEditor(config, locked = false) {
   }
 }
 
-function productPriceMode() {
-  return document.querySelector('#product-price-mode-defined').checked ? 'defined' : 'quote';
-}
-
-function collectProductPrice() {
-  if (productPriceMode() === 'quote') return null;
-  const input = document.querySelector('#product-price');
-  const normalized = input.value.trim().replace(',', '.');
-  if (!normalized || !/^\d+(?:\.\d{1,2})?$/.test(normalized)) {
-    throw new Error('Escribe un precio válido en pesos, con máximo dos decimales.');
-  }
-  const value = Number(normalized);
-  if (!Number.isFinite(value) || value < 0 || value > 9999999999.99) {
-    throw new Error('El precio debe estar entre 0 y 9.999.999.999,99 pesos.');
-  }
-  return value;
-}
-
-function formatProductPrice(value, currency = 'COP') {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency, maximumFractionDigits: 2 }).format(Number(value));
-}
-
-function updateProductPriceMode() {
-  const defined = productPriceMode() === 'defined';
-  const entry = document.querySelector('#product-price-entry');
-  const input = document.querySelector('#product-price');
-  document.querySelector('#product-price-currency').textContent = (editingProduct?.currency ?? 'COP').trim();
-  entry.hidden = !defined;
-  input.required = defined;
-  input.setAttribute('aria-required', String(defined));
-  updateMeasurementPreview();
-}
-
 function updateMeasurementPreview() {
   const preview = document.querySelector('#measurement-preview');
   if (!preview) return;
   preview.replaceChildren();
   const customerDimensions = readMeasurementRows('product-dimensions');
   const fixedDimensions = readFixedDimensionRows();
-
-  const priceSection = element('section', 'preview-group preview-price-group');
-  priceSection.append(element('h5', '', 'Precio'));
-  if (productPriceMode() === 'quote') {
-    priceSection.append(element('p', 'preview-price-value', 'Por cotizar.'));
-  } else {
-    try {
-      priceSection.append(element('p', 'preview-price-value', formatProductPrice(collectProductPrice(), editingProduct?.currency ?? 'COP')));
-    } catch {
-      priceSection.append(element('p', 'measurement-empty', 'Indica un precio válido para mostrarlo aquí.'));
-    }
-  }
 
   const customerSection = element('section', 'preview-group');
   customerSection.append(element('h5', '', 'Medidas que debes proporcionar'));
@@ -518,7 +464,7 @@ function updateMeasurementPreview() {
       fixedSection.append(row);
     }
   }
-  preview.append(priceSection, customerSection, fixedSection);
+  preview.append(customerSection, fixedSection);
 }
 
 function readMeasurementRows(containerId) {
@@ -597,7 +543,6 @@ function setWizardStep(step) {
   document.querySelector('#wizard-next').hidden = currentWizardStep === 5;
   updateWizardCategorySelection();
   if (currentWizardStep === 5) renderProductReview();
-  if (currentWizardStep === 4) updateProductPriceMode();
   productForm.querySelector(`[data-wizard-step="${currentWizardStep}"] h3`)?.focus();
 }
 
@@ -609,11 +554,6 @@ function renderProductReview() {
   const fixedDimensions = readFixedDimensionRows();
   const retainedMedia = wizardExistingMedia.filter((media) => media.keep);
   const uploadedMedia = wizardPhotoFiles.filter((entry) => entry.media);
-  let selectedPrice = 'Por cotizar';
-  if (productPriceMode() === 'defined') {
-    try { selectedPrice = formatProductPrice(collectProductPrice(), editingProduct?.currency ?? 'COP'); }
-    catch { selectedPrice = 'Falta un precio válido'; }
-  }
   const chosenCover = resolveWizardCover();
   const rows = [
     ['Producto', document.querySelector('#product-name').value.trim() || 'Falta el nombre'],
@@ -621,7 +561,6 @@ function renderProductReview() {
     ['Descripción', document.querySelector('#product-description').value.trim() || 'Sin descripción'],
     ['Fotografías', `${retainedMedia.length + uploadedMedia.length + Number(Boolean(wizardPendingPhoto))} seleccionadas${chosenCover ? ' · portada elegida' : ''}`],
     ['Videos', `${wizardExistingVideos.length - wizardRemovedVideoIds.size} guardados · ${wizardSelectedVideos.length} nuevos`],
-    ['Precio', selectedPrice],
     ['Medidas para cotizar', dimensions.length ? dimensions.map((dimension) => dimension.label).join(', ') : 'No se solicitarán medidas'],
     ['Dimensiones fijas', fixedDimensions.length
       ? fixedDimensions.map((dimension) => `${dimension.label}: ${dimension.value_m} m`).join(', ')
@@ -1178,7 +1117,6 @@ function resetProductForm() {
   document.querySelector('#product-category').dispatchEvent(new Event('change', { bubbles: true }));
   renderMeasurementEditor('product-dimensions', null, () => { productMeasurementsTouched = true; });
   renderFixedDimensionEditor(null);
-  updateProductPriceMode();
   renderWizardMedia(null);
   updateProductTemplateInfo();
   setWizardStep(1);
@@ -1190,8 +1128,6 @@ function editCategory(category) {
   document.querySelector('#category-name').value = category.name;
   document.querySelector('#category-slug').value = category.slug;
   document.querySelector('#category-description').value = category.description ?? '';
-  document.querySelector('#category-pricing-rules').value = category.pricing_rules
-    ? JSON.stringify(category.pricing_rules, null, 2) : '';
   renderMeasurementEditor('category-template-dimensions', category.measurement_template);
   document.querySelector('#category-active').checked = category.is_active;
   document.querySelector('#category-form-title').textContent = `Editar: ${category.name}`;
@@ -1212,11 +1148,6 @@ function editProduct(product) {
   document.querySelector('#product-name').value = product.name;
   document.querySelector('#product-slug').value = product.slug;
   document.querySelector('#product-description').value = product.description ?? '';
-  document.querySelector('#product-price').value = product.price === null || product.price === undefined ? '' : String(product.price);
-  document.querySelector('#product-price-mode-defined').checked = product.price !== null && product.price !== undefined;
-  document.querySelector('#product-price-mode-quote').checked = !document.querySelector('#product-price-mode-defined').checked;
-  document.querySelector('#product-pricing-rules').value = product.pricing_rules
-    ? JSON.stringify(product.pricing_rules, null, 2) : '';
   document.querySelector('#product-category').value = product.category_id ?? '';
   selectedProductCategoryId = String(product.category_id ?? '');
   renderMeasurementEditor('product-dimensions', product.measurement_config, () => { productMeasurementsTouched = true; });
@@ -1226,7 +1157,6 @@ function editProduct(product) {
   document.querySelector('#add-fixed-dimension').disabled = fixedDimensionsFormatUnknown;
   document.querySelector('#fixed-dimensions-legacy-note').hidden = !fixedDimensionsFormatUnknown;
   renderFixedDimensionEditor(fixedDimensions.config, fixedDimensionsFormatUnknown);
-  updateProductPriceMode();
   document.querySelector('#product-category').dispatchEvent(new Event('change', { bubbles: true }));
   document.querySelector('#product-form-title').textContent = `Editar: ${product.name}`;
   document.querySelector('#save-draft-button').textContent = product.is_published ? 'Guardar cambios' : 'Guardar como borrador';
@@ -1673,7 +1603,6 @@ function renderProducts(products) {
     item.append(heading);
     item.append(element('p', 'admin-record-meta', product.category_name ?? 'Sin categoría'));
     if (product.description) item.append(element('p', '', product.description));
-    if (product.price !== null && product.price !== undefined) item.append(element('p', 'admin-record-meta', `Precio de referencia registrado: ${product.price} ${product.currency}`));
     item.append(renderMedia(product));
     if (!product.media?.length) {
       const note = product.is_published
@@ -2286,7 +2215,6 @@ categoryForm.addEventListener('submit', async (event) => {
       name: document.querySelector('#category-name').value,
       slug: document.querySelector('#category-slug').value,
       description: document.querySelector('#category-description').value,
-      pricingRules: parseRule(document.querySelector('#category-pricing-rules').value),
       measurementTemplate: collectMeasurementConfig('category-template-dimensions'),
       isActive: document.querySelector('#category-active').checked,
     }, { id });
@@ -2327,10 +2255,8 @@ productForm.addEventListener('submit', async (event) => {
     return;
   }
   try {
-    collectProductPrice();
     collectMeasurementConfig('product-dimensions');
     if (!fixedDimensionsFormatUnknown) collectFixedDimensions();
-    parseRule(document.querySelector('#product-pricing-rules').value);
   } catch (error) {
     setWizardStep(4);
     setStatus(error.message, true);
@@ -2357,10 +2283,8 @@ productForm.addEventListener('submit', async (event) => {
         slug: document.querySelector('#product-slug').value,
         description: document.querySelector('#product-description').value,
         categoryId: document.querySelector('#product-category').value,
-        price: collectProductPrice(),
         measurementConfig: collectMeasurementConfig('product-dimensions'),
         ...(!fixedDimensionsFormatUnknown ? { fixedDimensions: collectFixedDimensions() } : {}),
-        pricingRules: parseRule(document.querySelector('#product-pricing-rules').value),
       }),
     });
     const savedId = id || result.product?.id;
@@ -2446,10 +2370,8 @@ function goToNextWizardStep() {
       }
     }
     if (currentWizardStep === 4) {
-      collectProductPrice();
       collectMeasurementConfig('product-dimensions');
       if (!fixedDimensionsFormatUnknown) collectFixedDimensions();
-      parseRule(document.querySelector('#product-pricing-rules').value);
     }
     setWizardStep(currentWizardStep + 1);
   } catch (error) {
@@ -2501,7 +2423,6 @@ document.querySelector('#wizard-save-category').addEventListener('click', async 
     name,
     slug,
     description: '',
-    pricingRules: null,
     measurementTemplate: null,
     isActive: true,
   }, { selectForProduct: true });
@@ -2563,8 +2484,6 @@ document.querySelector('#add-template-dimension').addEventListener('click', () =
   addMeasurement('category-template-dimensions', document.querySelector('#template-dimension-type').value);
 });
 document.querySelector('#add-fixed-dimension').addEventListener('click', addFixedDimension);
-document.querySelectorAll('input[name="productPriceMode"]').forEach((input) => input.addEventListener('change', updateProductPriceMode));
-document.querySelector('#product-price').addEventListener('input', updateMeasurementPreview);
 document.querySelector('#apply-category-template').addEventListener('click', () => applyCategoryTemplate());
 document.querySelector('#product-category').addEventListener('change', handleProductCategoryChange);
 for (const control of document.querySelectorAll('[data-start-wizard]')) {

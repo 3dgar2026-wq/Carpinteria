@@ -6,8 +6,6 @@ const requestCount = document.querySelector('#request-count');
 const requestStatus = document.querySelector('#request-status');
 const requestEmpty = document.querySelector('#request-empty');
 const requestItemsElement = document.querySelector('#request-items');
-const requestText = document.querySelector('#request-text');
-const copyRequestButton = document.querySelector('#copy-request');
 const clearRequestButton = document.querySelector('#clear-request');
 const sendWhatsAppButton = document.querySelector('#send-whatsapp');
 const categoryFilters = document.querySelector('.category-filters');
@@ -19,6 +17,40 @@ const imageViewerImage = document.querySelector('#image-viewer-image');
 const imageViewerClose = document.querySelector('#image-viewer-close');
 const adminAccessLink = document.querySelector('#admin-access-link');
 const copyrightYear = document.querySelector('#copyright-year');
+const generalWhatsApp = document.querySelector('#general-whatsapp');
+const contactUnavailable = document.querySelector('#contact-unavailable');
+const generalContactUnavailable = document.querySelector('#contact-unavailable-general');
+let whatsappPhone = '';
+fetch('/api/contact', { headers: { Accept: 'application/json' }, cache: 'no-store' })
+  .then((response) => response.ok ? response.json() : null)
+  .then((contact) => {
+    whatsappPhone = typeof contact?.whatsapp === 'string' ? contact.whatsapp : '';
+    if (!whatsappPhone) {
+      if (contactUnavailable) contactUnavailable.hidden = false;
+      if (generalContactUnavailable) generalContactUnavailable.hidden = false;
+      renderRequest();
+      return;
+    }
+    const link = whatsappUrl('Hola, quisiera recibir información sobre sus trabajos de carpintería.');
+    generalWhatsApp.href = link;
+    generalWhatsApp.hidden = false;
+    contactUnavailable.hidden = true;
+    generalContactUnavailable.hidden = true;
+    renderRequest();
+    if (catalogProducts.length) renderCatalog();
+  }).catch(() => {
+    if (contactUnavailable) contactUnavailable.hidden = false;
+    if (generalContactUnavailable) generalContactUnavailable.hidden = false;
+  });
+
+function whatsappUrl(message) {
+  return `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(message)}`;
+}
+
+function productWhatsApp(product) {
+  const category = product.category_name ? ` de la categoría ${product.category_name}` : '';
+  return whatsappUrl(`Hola, estoy interesado en el trabajo ${product.name}${category}. Quisiera recibir información y consultar las opciones disponibles. Enlace: ${productPublicUrl(product)}`);
+}
 
 if (copyrightYear) {
   const year = String(new Date().getFullYear());
@@ -29,7 +61,7 @@ if (copyrightYear) {
 const standardDimensions = new Set(['width_m', 'height_m', 'depth_m', 'length_m', 'thickness_m']);
 const maximumDimensionCount = 12;
 const requests = new Map();
-let requestSequence = 0;
+const selectionStorageKey = 'carpinteria.selection.ids.v1';
 let productsById = new Map();
 let catalogProducts = [];
 let selectedCategory = '';
@@ -39,7 +71,10 @@ let catalogRequestController = null;
 function mediaUrl(media, size = 'preview') {
   if (!media?.url) return '';
   const url = new URL(media.url, window.location.origin);
-  if (url.origin === window.location.origin) url.searchParams.set('size', size);
+  if (url.origin === window.location.origin) {
+    if (size === 'original') url.searchParams.delete('size');
+    else url.searchParams.set('size', size);
+  }
   return url.href;
 }
 
@@ -83,23 +118,6 @@ function textElement(tag, className, text) {
 
 function formatMeasurement(value, maximumFractionDigits = 2) {
   return new Intl.NumberFormat('es-CO', { maximumFractionDigits }).format(value);
-}
-
-function formatMoney(value, currency) {
-  if (value === null || value === undefined || value === '') return null;
-  const amount = Number(value);
-  const code = String(currency ?? '').trim();
-  if (!Number.isFinite(amount) || amount < 0 || !/^[A-Z]{3}$/.test(code)) return null;
-
-  try {
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: code,
-      maximumFractionDigits: 2,
-    }).format(amount);
-  } catch {
-    return null;
-  }
 }
 
 function validDimensionKey(key) {
@@ -208,15 +226,15 @@ function createMeasurementForm(product, dimensions) {
   });
 
   const outcome = textElement('p', 'estimate-outcome', dimensions.length
-    ? 'Completa las medidas para revisar el precio disponible.'
-    : 'Puedes agregar este mueble a tu solicitud de cotización.');
+    ? 'Puedes indicar estas medidas para facilitar la consulta.'
+    : 'Consulta directamente por este trabajo.');
   outcome.setAttribute('aria-live', 'polite');
   form.append(outcome);
 
   const submit = document.createElement('button');
   submit.type = 'submit';
   submit.className = 'button button-dark';
-  submit.textContent = 'Solicitar cotización';
+  submit.textContent = 'Guardar medidas y agregar';
   form.append(submit);
   details.append(form);
   return details;
@@ -232,29 +250,57 @@ function createProductCard(product) {
     const photo = media[0];
     const image = document.createElement('img');
     image.className = 'product-card-cover';
-    image.src = mediaUrl(photo, 'preview');
+    image.src = mediaUrl(photo, 'large');
     image.alt = photo.altText?.trim() || `Fotografía de ${product.name}`;
     image.loading = 'lazy';
     image.decoding = 'async';
     image.addEventListener('error', () => {
       if (image.isConnected) image.replaceWith(textElement('p', 'product-media-unavailable', 'Fotografía pública no disponible.'));
     }, { once: true });
-    card.append(image);
+    const imageTrigger = document.createElement('button');
+    imageTrigger.type = 'button';
+    imageTrigger.className = 'product-card-image-trigger';
+    imageTrigger.dataset.productDetails = String(product.id);
+    imageTrigger.setAttribute('aria-label', `Ver fotografías y detalles de ${product.name}`);
+    imageTrigger.append(image);
+    card.append(imageTrigger);
   } else {
     card.append(textElement('p', 'product-media-unavailable', 'Sin fotografía pública disponible.'));
   }
 
-  if (product.category_name) card.append(textElement('p', 'eyebrow product-category', product.category_name));
-  card.append(textElement('h3', 'product-title', product.name));
-  const price = formatMoney(product.price, product.currency);
-  card.append(textElement('p', 'product-price', price ?? 'Precio por cotizar'));
-  const detailsButton = document.createElement('button');
-  detailsButton.type = 'button';
-  detailsButton.className = 'product-detail-trigger';
-  detailsButton.dataset.productDetails = String(product.id);
-  detailsButton.textContent = 'Ver detalles';
-  detailsButton.setAttribute('aria-haspopup', 'dialog');
-  card.append(detailsButton);
+  const content = document.createElement('div');
+  content.className = 'product-card-body';
+  if (product.category_name) content.append(textElement('p', 'eyebrow product-category', product.category_name));
+  const title = document.createElement('h3');
+  title.className = 'product-title';
+  const titleTrigger = document.createElement('button');
+  titleTrigger.type = 'button';
+  titleTrigger.className = 'product-title-trigger';
+  titleTrigger.dataset.productDetails = String(product.id);
+  titleTrigger.textContent = product.name;
+  title.append(titleTrigger);
+  content.append(title);
+  const actions = document.createElement('div');
+  actions.className = 'product-card-actions';
+  const selectionButton = document.createElement('button');
+  selectionButton.type = 'button';
+  selectionButton.className = 'button button-outline product-selection-button';
+  selectionButton.dataset.productSelection = String(product.id);
+  selectionButton.setAttribute('aria-pressed', String(requests.has(String(product.id))));
+  selectionButton.textContent = requests.has(String(product.id)) ? 'Quitar de mi selección' : 'Agregar a mi selección';
+  selectionButton.setAttribute('aria-label', `${selectionButton.textContent}: ${product.name}${product.category_name ? `, ${product.category_name}` : ''}`);
+  actions.append(selectionButton);
+  if (whatsappPhone) {
+    const contact = document.createElement('a');
+    contact.className = 'button button-dark product-whatsapp';
+    contact.href = productWhatsApp(product);
+    contact.target = '_blank';
+    contact.rel = 'noopener noreferrer';
+    contact.textContent = 'Consultar por WhatsApp';
+    actions.append(contact);
+  }
+  content.append(actions);
+  card.append(content);
   return card;
 }
 
@@ -305,7 +351,7 @@ function openProductDetails(product, trigger) {
       track.append(slide);
     });
     if (photos.length > 1) {
-      const loopSlide = track.lastElementChild.cloneNode(true);
+      const loopSlide = track.firstElementChild.cloneNode(true);
       loopSlide.dataset.loopEnd = 'true';
       loopSlide.setAttribute('aria-hidden', 'true');
       const loopImage = loopSlide.querySelector('img');
@@ -369,15 +415,16 @@ function openProductDetails(product, trigger) {
   const detailsToggle = document.createElement('button');
   detailsToggle.type = 'button';
   detailsToggle.className = 'product-details-toggle';
-  detailsToggle.textContent = 'Ver detalles';
-  detailsToggle.setAttribute('aria-expanded', 'false');
+  detailsToggle.textContent = 'Ocultar detalles';
+  detailsToggle.setAttribute('aria-expanded', 'true');
   detailsToggle.setAttribute('aria-controls', `product-detail-extra-${product.id}`);
-  let detailsExpanded = false;
+  let detailsExpanded = true;
+  layout.classList.add('details-expanded');
   const extraPanel = document.createElement('div');
   extraPanel.className = 'product-detail-extra';
   extraPanel.id = `product-detail-extra-${product.id}`;
-  extraPanel.setAttribute('aria-hidden', 'true');
-  extraPanel.inert = true;
+  extraPanel.setAttribute('aria-hidden', 'false');
+  extraPanel.inert = false;
   const extraContent = document.createElement('div');
   extraContent.className = 'product-detail-extra-inner';
   extraPanel.append(extraContent);
@@ -395,8 +442,27 @@ function openProductDetails(product, trigger) {
   information.append(title);
   if (product.category_name) information.append(textElement('p', 'eyebrow product-category', product.category_name));
   if (product.description) extraContent.append(textElement('p', 'product-detail-description', product.description));
-  const price = formatMoney(product.price, product.currency);
-  information.append(textElement('p', 'product-detail-price', price ?? 'Precio por cotizar'));
+  const selectionButton = document.createElement('button');
+  selectionButton.type = 'button';
+  selectionButton.className = 'button button-outline product-detail-selection';
+  selectionButton.dataset.productSelection = String(product.id);
+  selectionButton.setAttribute('aria-pressed', String(requests.has(String(product.id))));
+  selectionButton.textContent = requests.has(String(product.id)) ? 'Quitar de mi selección' : 'Agregar a mi selección';
+  selectionButton.addEventListener('click', () => {
+    const selected = toggleSelection(product);
+    showNotification(selected ? `${product.name} se agregó a Mi selección.` : `${product.name} se quitó de Mi selección.`);
+  });
+  information.append(selectionButton);
+  const directContact = document.createElement('a');
+  directContact.className = 'button button-dark product-detail-whatsapp';
+  directContact.textContent = 'Consultar por WhatsApp';
+  directContact.target = '_blank';
+  directContact.rel = 'noopener noreferrer';
+  directContact.href = whatsappPhone ? productWhatsApp(product) : '#contacto';
+  directContact.addEventListener('click', (event) => {
+    if (!whatsappPhone) { event.preventDefault(); window.location.hash = 'contacto'; }
+  });
+  information.append(directContact);
   information.append(detailsToggle);
   const productVideos = product.videos?.length ? product.videos : (product.video ? [product.video] : []);
   for (const [index, productVideo] of productVideos.entries()) {
@@ -431,7 +497,7 @@ function openProductDetails(product, trigger) {
   const configuredDimensions = measurementSpecs(product.measurement_config);
   const dimensions = configuredDimensions ?? [];
   if (configuredDimensions) {
-    extraContent.append(textElement('h3', 'product-detail-measure-heading', 'Medidas para cotizar'));
+    extraContent.append(textElement('h3', 'product-detail-measure-heading', 'Medidas para consultar'));
   } else if (product.measurement_config) {
     extraContent.append(textElement('p', 'field-help', 'Las opciones de medidas están pendientes de configuración. Puedes describir tu solicitud abajo.'));
   }
@@ -535,6 +601,15 @@ function renderCatalog() {
     return;
   }
   grid.replaceChildren(...visibleProducts.map(createProductCard));
+  openLinkedProduct();
+}
+
+function openLinkedProduct() {
+  if (productDetailsDialog.open) return;
+  const match = /^#trabajo-([1-9]\d*)$/.exec(window.location.hash);
+  if (!match) return;
+  const trigger = grid.querySelector(`[data-product-details="${CSS.escape(match[1])}"]`);
+  if (trigger) openProductDetails(productsById.get(match[1]), trigger);
 }
 
 categoryFilters.addEventListener('click', (event) => {
@@ -609,64 +684,80 @@ function validateMeasurements(form) {
   return { measurements, errors };
 }
 
-async function requestEstimate(product, measurements) {
-  try {
-    const response = await fetch(`/api/catalog/${encodeURIComponent(product.id)}/estimate`, {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ measurements }),
-    });
-    if (!response.ok) return null;
-    const result = await response.json();
-    if (result.status !== 'estimated' || !formatMoney(result.amount, result.currency)) return null;
-    return { amount: result.amount, currency: result.currency };
-  } catch {
-    return null;
-  }
-}
-
 function addRequest(product, measurements = {}, notes = '') {
-  const key = `${product.id}:${++requestSequence}`;
-  const item = { key, product, measurements, notes: notes.trim(), estimate: null };
+  const key = String(product.id);
+  const existing = requests.get(key);
+  const item = {
+    key,
+    product,
+    measurements: { ...(existing?.measurements ?? {}), ...measurements },
+    notes: notes.trim() || existing?.notes || '',
+  };
   requests.set(key, item);
+  persistSelection();
   renderRequest();
   return item;
 }
 
+function toggleSelection(product) {
+  const key = String(product.id);
+  if (requests.has(key)) {
+    requests.delete(key);
+    persistSelection();
+    renderRequest();
+    return false;
+  }
+  addRequest(product);
+  return true;
+}
+
+function persistSelection() {
+  try { localStorage.setItem(selectionStorageKey, JSON.stringify([...requests.keys()])); } catch { /* Storage may be unavailable; in-memory selection remains active. */ }
+}
+
+function restoreSelection() {
+  let stored = [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(selectionStorageKey) ?? '[]');
+    if (Array.isArray(parsed)) stored = parsed;
+  } catch { /* Invalid or unavailable browser storage starts an empty selection. */ }
+  const prior = new Map(requests);
+  requests.clear();
+  for (const id of stored) {
+    const product = productsById.get(String(id));
+    if (!product) continue;
+    const key = String(product.id);
+    const existing = prior.get(key);
+    requests.set(key, { key, product, measurements: existing?.measurements ?? {}, notes: existing?.notes ?? '' });
+  }
+  persistSelection();
+  renderRequest();
+}
+
 function requestSummary() {
-  const lines = ['SOLICITUD DE COTIZACIÓN', ''];
+  const lines = ['Hola, quisiera solicitar información y cotización sobre estos trabajos:', ''];
   let index = 0;
   for (const item of requests.values()) {
     index += 1;
-    lines.push(`Producto ${index}: ${item.product.name}`);
-    if (item.product.category_name) lines.push(`Categoría: ${item.product.category_name}`);
-    const photos = (item.product.media ?? []).filter((media) => typeof media.url === 'string' && media.url);
-    lines.push('Fotografías:');
-    if (photos.length) photos.forEach((photo, photoIndex) => lines.push(`- Fotografía ${photoIndex + 1}: ${mediaUrl(photo, 'large')}`));
-    else lines.push('- No disponibles públicamente.');
-    const videos = item.product.videos?.length ? item.product.videos : (item.product.video ? [item.product.video] : []);
-    lines.push('Videos:');
-    const publicVideos = videos.filter((video) => typeof video.url === 'string');
-    if (publicVideos.length) publicVideos.forEach((video, videoIndex) => {
-      const videoUrl = new URL(video.url, window.location.origin).href;
-      lines.push(`- Video ${videoIndex + 1}: ${videoUrl}`);
-    });
-    else lines.push('- No disponibles públicamente.');
-    lines.push('Medidas:');
-    if (!Object.keys(item.measurements).length) lines.push('- No indicadas.');
+    lines.push(`${index}. ${item.product.name}`);
+    if (item.product.category_name) lines.push(`   Categoría: ${item.product.category_name}`);
     for (const [dimension, value] of Object.entries(item.measurements)) {
       const label = dimensionLabel(item.product, dimension);
-      lines.push(`- ${label}: ${formatMeasurement(value, 3)} m (${formatMeasurement(value * 100, 2)} cm)`);
+      lines.push(`   ${label}: ${formatMeasurement(value, 3)} m`);
     }
     const fixed = fixedDimensionSpecs(item.product.fixed_dimensions);
-    if (fixed.length) lines.push(`Dimensiones registradas: ${fixed.map((dimension) => `${dimension.label}: ${formatMeasurement(dimension.value_m, 3)} m`).join(' · ')}`);
-    if (item.product.description?.trim()) lines.push(`Detalles: ${item.product.description.trim()}`);
-    if (item.notes) lines.push(`Información adicional: ${item.notes}`);
-    lines.push(requestPriceLabel(item.product, item.estimate));
-    lines.push('', '--------------------------------', '');
+    if (fixed.length) lines.push(`   Dimensiones disponibles: ${fixed.map((dimension) => `${dimension.label}: ${formatMeasurement(dimension.value_m, 3)} m`).join(' · ')}`);
+    if (item.notes) lines.push(`   Información adicional: ${item.notes}`);
+    lines.push(`   Enlace: ${productPublicUrl(item.product)}`, '');
   }
-  lines.push('MENSAJE:', 'Me gustaría recibir información y cotización sobre estos trabajos.', '', 'El precio final se acordará directamente con el maestro ebanista, teniendo en cuenta las características y especificaciones de cada mueble.');
+  lines.push('Quisiera recibir información sobre las opciones disponibles.');
   return lines.join('\n');
+}
+
+function productPublicUrl(product) {
+  const url = new URL(window.location.href);
+  url.hash = `trabajo-${product.id}`;
+  return url.href;
 }
 
 let lastImageViewerTrigger = null;
@@ -677,7 +768,7 @@ function openImageViewer(media, productName, index) {
   imageViewerImage.alt = media.altText?.trim() || `Fotografía ${index + 1} de ${productName}`;
   imageViewerImage.addEventListener('load', sizeImageViewer, { once: true });
   imageViewerImage.addEventListener('error', () => imageViewerDialog.classList.remove('is-sizing'), { once: true });
-  imageViewerImage.src = mediaUrl(media, 'large');
+  imageViewerImage.src = mediaUrl(media, 'original');
   imageViewerDialog.showModal();
   sizeImageViewer();
   document.body.classList.add('has-image-viewer');
@@ -719,14 +810,6 @@ imageViewerDialog?.addEventListener('close', () => {
   lastImageViewerTrigger = null;
 });
 
-function requestPriceLabel(product, estimate) {
-  if (estimate) return `  Estimación orientativa: ${formatMoney(estimate.amount, estimate.currency)}`;
-  const publishedPrice = formatMoney(product.price, product.currency);
-  return publishedPrice
-    ? `  Precio publicado (por confirmar): ${publishedPrice}`
-    : '  Precio: por cotizar';
-}
-
 function dimensionLabel(product, key) {
   const configured = product.measurement_config?.dimensions?.find((dimension) => dimension.key === key)?.label;
   if (typeof configured === 'string' && configured.trim()) return configured.trim();
@@ -737,14 +820,15 @@ function renderRequest() {
   requestItemsElement.replaceChildren();
 
   for (const item of requests.values()) {
+    item.product = productsById.get(String(item.key)) ?? item.product;
     const row = document.createElement('li');
-    row.className = 'request-item';
-    const photo = item.product.media?.find((media) => typeof media.url === 'string' && media.url);
+    row.className = 'selection-item';
+    const photo = Array.isArray(item.product.media) ? item.product.media[0] : null;
     const photoFrame = document.createElement('div');
-    photoFrame.className = 'request-item-photo';
+    photoFrame.className = 'selection-photo';
     if (photo) {
       const image = document.createElement('img');
-      image.src = mediaUrl(photo, 'preview');
+      image.src = mediaUrl(photo, 'large');
       image.alt = photo.altText?.trim() || `Fotografía de ${item.product.name}`;
       image.loading = 'lazy';
       image.decoding = 'async';
@@ -757,7 +841,10 @@ function renderRequest() {
       photoFrame.append(textElement('span', 'request-item-photo-unavailable', 'Sin fotografía pública'));
     }
     const description = document.createElement('div');
-    description.append(textElement('strong', '', item.product.name));
+    description.className = 'selection-item-copy';
+    description.append(textElement('strong', 'selection-item-title', item.product.name));
+    if (item.product.category_name) description.append(textElement('span', 'selection-item-detail', item.product.category_name));
+    if (item.product.description) description.append(textElement('span', 'selection-item-detail selection-item-description', item.product.description));
 
     const measurements = Object.entries(item.measurements);
     if (measurements.length) {
@@ -765,51 +852,80 @@ function renderRequest() {
         const label = dimensionLabel(item.product, key);
         return `${label}: ${formatMeasurement(value, 3)} m`;
       });
-      description.append(textElement('span', 'request-item-detail', `Medidas solicitadas: ${labels.join(' · ')}`));
+      description.append(textElement('span', 'selection-item-detail', `Medidas: ${labels.join(' · ')}`));
     }
 
     const modelDimensions = fixedDimensionSpecs(item.product.fixed_dimensions);
     if (modelDimensions.length) {
       const labels = modelDimensions.map((dimension) => `${dimension.label.trim()}: ${formatMeasurement(dimension.value_m, 3)} m`);
-      description.append(textElement('span', 'request-item-detail', `Medidas del modelo: ${labels.join(' · ')}`));
+      description.append(textElement('span', 'selection-item-detail', `Medidas del modelo: ${labels.join(' · ')}`));
     }
-
-    description.append(textElement(
-      'span',
-      'request-item-detail',
-      requestPriceLabel(item.product, item.estimate).trim(),
-    ));
-    if (item.notes) description.append(textElement('span', 'request-item-detail', `Solicitud adicional: ${item.notes}`));
+    if (item.notes) description.append(textElement('span', 'selection-item-detail', `Información adicional: ${item.notes}`));
 
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'button button-text remove-item';
     remove.dataset.removeItem = item.key;
-    remove.setAttribute('aria-label', `Quitar ${item.product.name} de la solicitud`);
+    remove.setAttribute('aria-label', `Quitar ${item.product.name}${item.product.category_name ? ` de la categoría ${item.product.category_name}` : ''} de mi selección`);
     remove.textContent = 'Quitar';
     row.append(photoFrame, description, remove);
     requestItemsElement.append(row);
   }
 
   const count = requests.size;
+  requestItemsElement.dataset.count = String(count);
   requestCount.textContent = String(count);
-  requestCount.setAttribute('aria-label', `${count} ${count === 1 ? 'producto' : 'productos'}`);
+  requestCount.setAttribute('aria-label', `${count} ${count === 1 ? 'trabajo' : 'trabajos'} seleccionados`);
   requestStatus.textContent = count
-    ? `${count} ${count === 1 ? 'trabajo agregado' : 'trabajos agregados'} a la solicitud.`
-    : 'Aún no has agregado muebles.';
+    ? `${count} ${count === 1 ? 'trabajo en' : 'trabajos en'} mi selección.`
+    : 'Aún no has agregado trabajos.';
   requestEmpty.hidden = count > 0;
-  requestText.value = count ? requestSummary() : '';
-  copyRequestButton.disabled = count === 0;
   clearRequestButton.disabled = count === 0;
+  sendWhatsAppButton.disabled = count === 0 || !whatsappPhone;
+  grid.querySelectorAll('[data-product-selection]').forEach((button) => {
+    const selected = requests.has(String(button.dataset.productSelection));
+    button.setAttribute('aria-pressed', String(selected));
+    button.textContent = selected ? 'Quitar de mi selección' : 'Agregar a mi selección';
+    const product = productsById.get(String(button.dataset.productSelection));
+    button.setAttribute('aria-label', `${button.textContent}: ${product?.name ?? ''}${product?.category_name ? `, ${product.category_name}` : ''}`);
+  });
+  productDetailsContent.querySelectorAll('.product-detail-selection').forEach((button) => {
+    const selected = requests.has(String(button.dataset.productSelection));
+    button.setAttribute('aria-pressed', String(selected));
+    button.textContent = selected ? 'Quitar de mi selección' : 'Agregar a mi selección';
+  });
 }
 
 sendWhatsAppButton.addEventListener('click', () => {
-  const message = requestText.value || 'Hola, quisiera cotizar un diseño de mueble. ¿Podrían orientarme?';
-  const destination = '573233785300';
-  window.location.assign(`https://wa.me/${destination}?text=${encodeURIComponent(message)}`);
+  if (!whatsappPhone || !requests.size) return;
+  window.open(whatsappUrl(requestSummary()), '_blank', 'noopener,noreferrer');
+});
+
+clearRequestButton.addEventListener('click', () => {
+  requests.clear();
+  persistSelection();
+  renderRequest();
+});
+
+requestItemsElement.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-remove-item]');
+  if (!button) return;
+  requests.delete(String(button.dataset.removeItem));
+  persistSelection();
+  renderRequest();
 });
 
 grid.addEventListener('click', async (event) => {
+  const selectionButton = event.target.closest('[data-product-selection]');
+  if (selectionButton) {
+    const product = productsById.get(String(selectionButton.dataset.productSelection));
+    if (product) {
+      const selected = toggleSelection(product);
+      showNotification(selected ? `${product.name} se agregó a Mi selección.` : `${product.name} se quitó de Mi selección.`);
+    }
+    return;
+  }
+
   const detailsButton = event.target.closest('[data-product-details]');
   if (detailsButton) {
     const product = productsById.get(detailsButton.dataset.productDetails);
@@ -817,40 +933,6 @@ grid.addEventListener('click', async (event) => {
     return;
   }
 
-  const button = event.target.closest('[data-quote-product]');
-  if (!button) return;
-
-  const product = productsById.get(button.dataset.quoteProduct);
-  if (!product) return;
-  button.disabled = true;
-  button.setAttribute('aria-busy', 'true');
-  const originalText = button.textContent;
-  button.textContent = 'Preparando solicitud…';
-  let item;
-  try {
-    item = addRequest(product);
-  } catch {
-    button.disabled = false;
-    button.removeAttribute('aria-busy');
-    button.textContent = originalText;
-    showNotification('No se pudo agregar el mueble a tu solicitud. Inténtalo de nuevo.', { type: 'error' });
-    return;
-  }
-  showNotification('¡Solicitud agregada! Ya puedes revisarla o seguir eligiendo productos', {
-    actionLabel: 'Ver mi solicitud',
-    actionHref: '#solicitud',
-  });
-  const estimate = await requestEstimate(product, item.measurements);
-  if (estimate && requests.has(item.key)) {
-    item.estimate = estimate;
-    renderRequest();
-  }
-  requestStatus.textContent = estimate
-    ? `${product.name} se agregó. La estimación es orientativa y debe confirmarse.`
-    : `${product.name} se agregó; el precio está pendiente de configuración o confirmación.`;
-  button.disabled = false;
-  button.removeAttribute('aria-busy');
-  button.textContent = originalText;
 });
 
 function closeProductDetails() {
@@ -878,54 +960,6 @@ productDetailsDialog.addEventListener('close', () => {
   if (lastDetailsTrigger?.isConnected) lastDetailsTrigger.focus();
   lastDetailsTrigger = null;
 });
-productDetailsDialog.addEventListener('submit', async (event) => {
-  const form = event.target;
-  if (!(form instanceof HTMLFormElement) || !form.matches('.measurement-form')) return;
-  event.preventDefault();
-
-  const { measurements, errors } = validateMeasurements(form);
-  if (errors.length) {
-    errors[0].focus();
-    return;
-  }
-
-  const product = productsById.get(form.dataset.productId);
-  if (!product) return;
-  const submitButton = form.querySelector('button[type="submit"]');
-  const outcome = form.querySelector('.estimate-outcome');
-  const notes = form.querySelector('[name="special_request"]')?.value ?? '';
-  submitButton.disabled = true;
-  submitButton.setAttribute('aria-busy', 'true');
-  submitButton.textContent = 'Agregando…';
-  outcome.textContent = 'Agregando el mueble a tu solicitud…';
-  let item;
-  try {
-    item = addRequest(product, measurements, notes);
-  } catch {
-    submitButton.disabled = false;
-    submitButton.removeAttribute('aria-busy');
-    submitButton.textContent = 'Solicitar cotización';
-    outcome.textContent = 'No se pudo agregar el mueble a tu solicitud. Conservamos la información; inténtalo de nuevo.';
-    showNotification('No se pudo agregar el mueble a tu solicitud. Inténtalo de nuevo.', { type: 'error' });
-    return;
-  }
-  productDetailsDialog.close();
-  showNotification('¡Solicitud agregada! Ya puedes revisarla o seguir eligiendo productos', {
-    actionLabel: 'Ver mi solicitud',
-    actionHref: '#solicitud',
-  });
-  const estimate = await requestEstimate(product, measurements);
-  if (estimate && requests.has(item.key)) {
-    item.estimate = estimate;
-    renderRequest();
-  }
-  submitButton.disabled = false;
-  submitButton.removeAttribute('aria-busy');
-  submitButton.textContent = 'Solicitar cotización';
-  outcome.textContent = 'El mueble se agregó a Mi solicitud. Revisa el resumen y envíalo por WhatsApp cuando estés listo.';
-  requestStatus.textContent = `${product.name} se agregó a Mi solicitud${estimate ? ` con una estimación orientativa de ${formatMoney(estimate.amount, estimate.currency)}` : ''}.`;
-});
-
 function updateMeasurementInput(input) {
   const parsed = parseMeters(input.value);
   const conversion = document.getElementById(`${input.id}-conversion`);
@@ -965,79 +999,20 @@ productDetailsDialog.addEventListener('input', (event) => {
   }
 });
 
-grid.addEventListener('submit', async (event) => {
+productDetailsDialog.addEventListener('submit', (event) => {
   const form = event.target;
   if (!(form instanceof HTMLFormElement) || !form.matches('.measurement-form')) return;
   event.preventDefault();
-
   const { measurements, errors } = validateMeasurements(form);
-  if (errors.length) {
-    errors[0].focus();
-    return;
-  }
-
-  const product = productsById.get(form.dataset.productId);
+  if (errors.length) { errors[0].focus(); return; }
+  const product = productsById.get(String(form.dataset.productId));
   if (!product) return;
-
-  const outcome = form.querySelector('.estimate-outcome');
-  const submitButton = form.querySelector('button[type="submit"]');
-  submitButton.disabled = true;
-  submitButton.setAttribute('aria-busy', 'true');
-  submitButton.textContent = 'Preparando solicitud…';
-  outcome.textContent = 'Revisando si hay una regla de precio configurada…';
-  let item;
-  try {
-    item = addRequest(product, measurements);
-  } catch {
-    submitButton.disabled = false;
-    submitButton.removeAttribute('aria-busy');
-    submitButton.textContent = 'Solicitar cotización';
-    outcome.textContent = 'No se pudo agregar el mueble a tu solicitud. Conservamos la información; inténtalo de nuevo.';
-    showNotification('No se pudo agregar el mueble a tu solicitud. Inténtalo de nuevo.', { type: 'error' });
-    return;
-  }
-  showNotification('¡Solicitud agregada! Ya puedes revisarla o seguir eligiendo productos', {
-    actionLabel: 'Ver mi solicitud',
-    actionHref: '#solicitud',
+  const notes = form.querySelector('[name="special_request"]')?.value ?? '';
+  addRequest(product, measurements, notes);
+  form.querySelector('.estimate-outcome').textContent = 'Se guardaron las medidas y notas en Mi selección.';
+  showNotification(`${product.name} y sus medidas se guardaron en Mi selección.`, {
+    actionLabel: 'Ver mi selección', actionHref: '#mi-seleccion',
   });
-  const estimate = await requestEstimate(product, measurements);
-  if (estimate && requests.has(item.key)) {
-    item.estimate = estimate;
-    renderRequest();
-  }
-  outcome.textContent = estimate
-    ? `Estimación orientativa: ${formatMoney(estimate.amount, estimate.currency)}. El precio final se acordará directamente con el maestro ebanista, teniendo en cuenta las características y especificaciones del mueble.`
-    : 'Precio pendiente de configuración. Puedes agregar el trabajo para solicitar una cotización.';
-  requestStatus.textContent = estimate
-    ? `${product.name} con las medidas indicadas se agregó. La estimación debe confirmarse.`
-    : `${product.name} se agregó; el precio está pendiente de configuración o confirmación.`;
-  submitButton.disabled = false;
-  submitButton.removeAttribute('aria-busy');
-  submitButton.textContent = 'Solicitar cotización';
-});
-
-requestItemsElement.addEventListener('click', (event) => {
-  const button = event.target.closest('[data-remove-item]');
-  if (!button) return;
-  requests.delete(button.dataset.removeItem);
-  renderRequest();
-});
-
-clearRequestButton.addEventListener('click', () => {
-  requests.clear();
-  renderRequest();
-});
-
-copyRequestButton.addEventListener('click', async () => {
-  if (!requestText.value) return;
-  try {
-    await navigator.clipboard.writeText(requestText.value);
-    requestStatus.textContent = 'Solicitud copiada. Ya puedes compartirla con el carpintero.';
-  } catch {
-    requestText.focus();
-    requestText.select();
-    requestStatus.textContent = 'El texto quedó seleccionado. Cópialo para compartir la solicitud.';
-  }
 });
 
 async function loadCatalog() {
@@ -1081,6 +1056,7 @@ async function loadCatalog() {
 
     catalogProducts = result.products;
     productsById = new Map(catalogProducts.map((product) => [String(product.id), product]));
+    restoreSelection();
     if (selectedCategory && !catalogProducts.some((product) => product.category_slug === selectedCategory)) {
       selectedCategory = '';
     }
@@ -1089,7 +1065,7 @@ async function loadCatalog() {
       catalogStatus.textContent = 'Todavía no hay muebles publicados.';
       categoryFilters.hidden = true;
       categoryFilters.replaceChildren();
-      grid.replaceChildren(textElement('p', 'catalog-empty', 'Aún no hay muebles publicados. Cuando haya modelos disponibles, podrás explorar aquí sus fotografías, medidas y precios.'));
+      grid.replaceChildren(textElement('p', 'catalog-empty', 'Aún no hay trabajos publicados. Cuando haya modelos disponibles, podrás explorar sus fotografías y características.'));
       return;
     }
 

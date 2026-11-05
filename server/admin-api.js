@@ -332,7 +332,8 @@ router.patch('/categories/:id', async (request, response) => {
     const name = requiredText(request.body.name, 'El nombre', 160);
     const slug = validatedSlug(request.body.slug);
     const description = optionalText(request.body.description, 'La descripción', 3000);
-    const pricingRules = parseConfig(request.body, 'pricingRules', validatedPricingRule, 'precio');
+    const hasPricingRules = Object.hasOwn(request.body, 'pricingRules');
+    const pricingRules = hasPricingRules ? parseConfig(request.body, 'pricingRules', validatedPricingRule, 'precio') : null;
     const hasMeasurementTemplate = Object.hasOwn(request.body, 'measurementTemplate');
     const measurementTemplate = hasMeasurementTemplate
       ? validatedMeasurementConfig(request.body.measurementTemplate)
@@ -343,13 +344,6 @@ router.patch('/categories/:id', async (request, response) => {
       [categoryId],
     );
     if (!categoryLockRows.length) throw new AdminInputError('No se encontró la categoría.', 404);
-    const { rows: linkedProducts } = await client.query(
-      'SELECT measurement_config, pricing_rules FROM products WHERE category_id = $1',
-      [categoryId],
-    );
-    for (const product of linkedProducts) {
-      assertPricingFieldsConfigured(product.pricing_rules ?? pricingRules, product.measurement_config);
-    }
     if (typeof request.body.isActive !== 'boolean') {
       throw new AdminInputError('Indica si la categoría está activa.');
     }
@@ -364,13 +358,15 @@ router.patch('/categories/:id', async (request, response) => {
     }
     const { rows } = await client.query(`
       UPDATE categories
-      SET name = $2, slug = $3, description = $4, pricing_rules = $5::jsonb,
-          is_active = $6,
-          measurement_template = CASE WHEN $7 THEN $8::jsonb ELSE measurement_template END,
+      SET name = $2, slug = $3, description = $4,
+          pricing_rules = CASE WHEN $5 THEN $6::jsonb ELSE pricing_rules END,
+          is_active = $7,
+          measurement_template = CASE WHEN $8 THEN $9::jsonb ELSE measurement_template END,
           updated_at = now()
       WHERE id = $1
       RETURNING id, name, slug, description, is_active, pricing_rules, measurement_template
-    `, [categoryId, name, slug, description, pricingRules === null ? null : JSON.stringify(pricingRules), request.body.isActive,
+    `, [categoryId, name, slug, description, hasPricingRules,
+      pricingRules === null ? null : JSON.stringify(pricingRules), request.body.isActive,
       hasMeasurementTemplate, measurementTemplate === null ? null : JSON.stringify(measurementTemplate)]);
     if (!rows.length) throw new AdminInputError('No se encontró la categoría.', 404);
     await auditAdminAction(client, request.adminSession.id, 'category.updated', 'category', categoryId, {
@@ -873,7 +869,7 @@ router.get('/products', async (_request, response) => {
       ? '(ma.is_public IS TRUE)'
       : 'FALSE';
     const { rows } = await query(`
-      SELECT p.id, p.category_id, p.name, p.slug, p.description, p.price, p.currency,
+      SELECT p.id, p.category_id, p.name, p.slug, p.description,
              p.dimensions, p.measurement_config, p.pricing_rules, p.sort_order,
              p.is_published, c.name AS category_name, c.is_active AS category_is_active,
              COALESCE(
@@ -1248,15 +1244,14 @@ router.post('/products', async (request, response) => {
     const fixedDimensions = Object.hasOwn(request.body, 'fixedDimensions')
       ? validatedFixedDimensions(request.body.fixedDimensions)
       : null;
-    const price = validatedProductPrice(request.body.price);
-    const pricingRules = parseConfig(request.body, 'pricingRules', validatedPricingRule, 'precio');
-    assertPricingFieldsConfigured(pricingRules ?? category.pricing_rules, measurementConfig);
+    const price = null;
+    const pricingRules = null;
     const { rows } = await client.query(`
       INSERT INTO products (
         category_id, name, slug, description, price, dimensions, measurement_config, pricing_rules, is_published
       )
       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, FALSE)
-      RETURNING id, category_id, name, slug, description, price, currency, measurement_config,
+      RETURNING id, category_id, name, slug, description, measurement_config,
                 dimensions, pricing_rules, is_published
     `, [
       category.id,
@@ -1294,16 +1289,18 @@ router.patch('/products/:id', async (request, response) => {
       : null;
     const hasPrice = Object.hasOwn(request.body, 'price');
     const price = hasPrice ? validatedProductPrice(request.body.price) : null;
-    const pricingRules = parseConfig(request.body, 'pricingRules', validatedPricingRule, 'precio');
-    assertPricingFieldsConfigured(pricingRules ?? category.pricing_rules, measurementConfig);
+    const hasPricingRules = Object.hasOwn(request.body, 'pricingRules');
+    const pricingRules = hasPricingRules ? parseConfig(request.body, 'pricingRules', validatedPricingRule, 'precio') : null;
     const { rows } = await client.query(`
       UPDATE products
       SET category_id = $2, name = $3, slug = $4, description = $5,
           price = CASE WHEN $6 THEN $7::numeric ELSE price END,
           dimensions = CASE WHEN $8 THEN $9::jsonb ELSE dimensions END,
-          measurement_config = $10::jsonb, pricing_rules = $11::jsonb, updated_at = now()
+          measurement_config = $10::jsonb,
+          pricing_rules = CASE WHEN $11 THEN $12::jsonb ELSE pricing_rules END,
+          updated_at = now()
       WHERE id = $1
-      RETURNING id, category_id, name, slug, description, price, currency, measurement_config,
+      RETURNING id, category_id, name, slug, description, measurement_config,
                 dimensions, pricing_rules, is_published
     `, [
       id,
@@ -1316,6 +1313,7 @@ router.patch('/products/:id', async (request, response) => {
       hasFixedDimensions,
       fixedDimensions === null ? null : JSON.stringify(fixedDimensions),
       measurementConfig === null ? null : JSON.stringify(measurementConfig),
+      hasPricingRules,
       pricingRules === null ? null : JSON.stringify(pricingRules),
     ]);
     if (!rows.length) throw new AdminInputError('No se encontró el trabajo.', 404);
@@ -1420,10 +1418,6 @@ async function setProductPublication(request, response, isPublished) {
       if (!categoryRows.length) {
         throw new AdminInputError('Asigna el trabajo a una categoría activa antes de publicarlo.');
       }
-      assertPricingFieldsConfigured(
-        existing.pricing_rules ?? categoryRows[0].pricing_rules,
-        existing.measurement_config,
-      );
     }
 
     const { rows } = await client.query(`
