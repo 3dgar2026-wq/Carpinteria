@@ -32,6 +32,18 @@ a { color: inherit; }
 :focus-visible { outline: 2px solid var(--copper-dark); outline-offset: 4px; }
 [hidden] { display: none !important; }
 
+.startup-screen { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 1.5rem; background: var(--night-deep); color: var(--white); text-align: center; }
+.startup-content { width: min(100%, 30rem); display: flex; flex-direction: column; align-items: center; }
+.startup-wordmark { margin: 0; display: inline-flex; align-items: center; gap: .55rem; color: var(--white); font: 700 clamp(1.7rem, 7vw, 2.25rem)/1 var(--font-ui); letter-spacing: -.045em; }
+.startup-roof { width: 1.65rem; height: 1rem; flex: 0 0 auto; background: #D63832; clip-path: polygon(0 72%, 50% 0, 100% 72%, 100% 100%, 50% 31%, 0 100%); }
+.startup-message { margin: 2rem 0 0; color: var(--white); font: 500 clamp(1.65rem, 6vw, 2.4rem)/1.1 var(--font-editorial); }
+.startup-detail { min-height: 1.6em; margin: .75rem 0 1.5rem; color: rgba(255,255,255,.78); font-size: .95rem; }
+.startup-spinner { width: 2rem; height: 2rem; border: 2px solid rgba(255,255,255,.22); border-top-color: var(--copper-light); border-radius: 50%; animation: startup-spin .9s linear infinite; }
+.startup-retry { margin-top: .25rem; padding: .7rem 1.15rem; border: 1px solid var(--copper-light); background: var(--copper); color: var(--white); font-weight: 650; cursor: pointer; }
+.startup-retry:hover { background: var(--copper-dark); }
+@keyframes startup-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .startup-spinner { animation-duration: 2.5s; } }
+
 .skip-link { position: fixed; z-index: 20; top: .75rem; left: .75rem; padding: .7rem 1rem; transform: translateY(-160%); background: var(--white); }
 .skip-link:focus { transform: translateY(0); }
 .site-header { position: relative; z-index: 5; width: 100%; min-height: 5rem; padding: .75rem var(--space-page); display: flex; align-items: center; justify-content: space-between; gap: 2rem; border-bottom: 1px solid rgba(20,40,61,.14); background-color: var(--paper-light); color: var(--ink); }

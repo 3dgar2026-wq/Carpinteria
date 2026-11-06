@@ -6,12 +6,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description"
     content="Explora trabajos de carpintería, consulta sus características y comunícate directamente con el taller.">
-  <title>Carpintería — muebles en madera</title>
+  <title>decorCenter — muebles en madera</title>
   <link rel="stylesheet" href="/styles.css">
-  <script type="module" src="/catalog.js"></script>
+  <script type="module" src="/startup.js"></script>
 </head>
 
 <body>
+  <section class="startup-screen" id="startup-screen" role="status" aria-live="polite" aria-busy="true">
+    <div class="startup-content">
+      <h1 class="startup-wordmark"><span class="startup-roof" aria-hidden="true"></span>decorCenter</h1>
+      <p class="startup-message">Estamos preparando todo para ti</p>
+      <p class="startup-detail" id="startup-detail">Comprobando que el sitio esté disponible.</p>
+      <span class="startup-spinner" id="startup-spinner" aria-hidden="true"></span>
+      <button class="startup-retry" id="startup-retry" type="button" hidden>Volver a intentar</button>
+    </div>
+  </section>
   <a class="skip-link" href="#contenido">Saltar al contenido</a>
   <header class="site-header site-header-overlay">
     <a class="wordmark" href="#inicio" aria-label="Inicio">decorCenter</a>
