@@ -1,114 +1,146 @@
 <!doctype html>
 <html lang="es">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Explora trabajos de carpintería, consulta sus características y comunícate directamente con el taller.">
-    <title>Carpintería — muebles en madera</title>
-    <link rel="stylesheet" href="/styles.css">
-    <script type="module" src="/catalog.js"></script>
-  </head>
-  <body>
-    <a class="skip-link" href="#contenido">Saltar al contenido</a>
-    <header class="site-header site-header-overlay">
-      <a class="wordmark" href="#inicio" aria-label="Inicio">Carpintería</a>
-      <nav aria-label="Navegación principal">
-        <a href="#inicio">Inicio</a>
-        <a href="#trabajos">Catálogo</a>
-        <a href="#contacto">Contacto</a>
-        <a id="admin-access-link" class="admin-access-link" href="/admin" hidden>Administración</a>
-      </nav>
-      <a href="#mi-seleccion" class="selection-nav-link">Mi selección <span id="request-count" class="request-count" aria-label="0 trabajos">0</span></a>
-    </header>
-    <main id="contenido">
-      <section class="hero has-hero-image" id="inicio" aria-labelledby="hero-title">
-        <figure class="hero-feature">
-          <img src="/images/taller-carpinteria.png" alt="Taller de carpintería con herramientas, mesas de trabajo y una oficina lateral." width="1536" height="1024" fetchpriority="high" decoding="async">
-        </figure>
-        <div class="hero-copy-column">
-          <p class="eyebrow">Ebanistería · muebles en madera</p>
-          <h1 id="hero-title">Muebles hechos para vivirlos.</h1>
-          <p class="hero-copy">Explora los modelos publicados, revisa sus medidas y consulta directamente por el diseño que te interesa.</p>
-          <div class="hero-actions">
-            <a class="button button-dark" href="#trabajos">Explorar muebles</a>
-            <a class="button button-outline" href="#mi-seleccion">Solicitar cotización</a>
-          </div>
-          <a class="hero-scroll-cue" href="#trabajos">Descubre los muebles <span aria-hidden="true">↓</span></a>
-        </div>
-      </section>
-      <section class="catalog-section" id="trabajos" aria-labelledby="work-title">
-        <div class="section-heading">
-          <div class="catalog-heading-copy">
-            <p class="eyebrow">Catálogo</p>
-            <h2 id="work-title">Nuestros trabajos</h2>
-            <p>Explora los trabajos publicados y consulta la información de cada uno.</p>
-          </div>
-          <p id="catalog-status" class="catalog-status" role="status" aria-live="polite">Cargando muebles…</p>
-        </div>
-        <div class="category-filters" role="group" aria-label="Filtrar muebles por categoría" hidden></div>
-        <div id="product-grid" class="product-grid" tabindex="-1" aria-busy="true"></div>
-      </section>
 
-      <section class="selection-section" id="mi-seleccion" aria-labelledby="selection-title">
-        <div class="selection-heading">
-          <div><p class="eyebrow">Consulta</p><h2 id="selection-title">Mi selección</h2>
-            <p>Revisa los trabajos que te interesan y envía una sola consulta por WhatsApp.</p></div>
-          <p id="request-status" class="request-status" role="status" aria-live="polite">Aún no has agregado trabajos.</p>
-        </div>
-        <div id="request-empty" class="selection-empty">
-          <p>Tu selección está vacía.</p><a class="button button-outline" href="#trabajos">Volver al catálogo</a>
-        </div>
-        <ol id="request-items" class="selection-items"></ol>
-        <div class="selection-actions">
-          <a class="button button-outline" href="#trabajos">Seguir explorando</a>
-          <button id="clear-request" class="button button-text" type="button" disabled>Vaciar selección</button>
-          <button id="send-whatsapp" class="button button-dark" type="button" disabled>Enviar selección por WhatsApp</button>
-        </div>
-        <p class="selection-note">WhatsApp abrirá un mensaje con enlaces a los trabajos; no adjunta fotos ni videos automáticamente.</p>
-        <p id="contact-unavailable" class="field-help" hidden>El contacto por WhatsApp no está disponible en este momento.</p>
-      </section>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description"
+    content="Explora trabajos de carpintería, consulta sus características y comunícate directamente con el taller.">
+  <title>Carpintería — muebles en madera</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/catalog.js"></script>
+</head>
 
-      <section class="contact-section" id="contacto" aria-labelledby="contact-title">
-        <p class="eyebrow">Contacto directo</p>
-        <h2 id="contact-title">Hablemos de tu proyecto.</h2>
-        <p>Cuéntanos qué necesitas y revisamos contigo las opciones disponibles.</p>
-        <a id="general-whatsapp" class="button button-light" href="#contacto" hidden>Consultar por WhatsApp</a>
-        <p id="contact-unavailable-general" class="field-help" hidden>El contacto por WhatsApp no está disponible en este momento.</p>
-      </section>
-    </main>
-    <dialog id="product-details-dialog" class="product-details-dialog" aria-labelledby="product-detail-title">
-      <div class="product-details-panel">
-        <button id="product-details-close" class="product-details-close" type="button" aria-label="Cerrar detalles">×</button>
-        <div id="product-details-content"></div>
-      </div>
-    </dialog>
-    <dialog id="image-viewer-dialog" class="image-viewer-dialog" aria-label="Visor de fotografía">
-      <div class="image-viewer-panel">
-        <img id="image-viewer-image" class="image-viewer-image" alt="">
-        <button id="image-viewer-close" class="image-viewer-close" type="button" aria-label="Cerrar fotografía ampliada">×</button>
-      </div>
-    </dialog>
-    <footer class="site-footer public-footer">
-      <div class="public-footer-inner">
-        <div class="public-footer-content">
-          <div class="public-footer-brand">
-            <a class="footer-title" href="/">Carpintería</a>
-            <p class="public-footer-description">Fabricación de muebles en madera y soluciones de carpintería.</p>
-          </div>
-          <nav class="public-footer-navigation" aria-label="Navegación del pie de página">
-            <p class="public-footer-heading">Navegación</p>
-            <ul>
-              <li><a href="/">Inicio</a></li>
-              <li><a href="#mi-seleccion">Mi selección</a></li>
-              <li><a href="#trabajos">Catálogo de muebles</a></li>
-              <li><a href="#contacto">Contacto directo</a></li>
-            </ul>
-          </nav>
+<body>
+  <a class="skip-link" href="#contenido">Saltar al contenido</a>
+  <header class="site-header site-header-overlay">
+    <a class="wordmark" href="#inicio" aria-label="Inicio">decorCenter</a>
+    <nav class="main-nav" aria-label="Navegación principal">
+      <a href="#inicio">Inicio</a>
+      <a href="#trabajos">Productos</a>
+      <a href="#contacto">Contacto</a>
+      <a id="admin-access-link" class="admin-access-link" href="/admin" hidden>Administración</a>
+    </nav>
+    <div class="header-actions">
+      <span class="header-actions-divider" aria-hidden="true"></span>
+      <a href="#mi-seleccion" class="selection-nav-link">
+        <svg class="header-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M20.8 8.8c0 5.2-8.8 10.2-8.8 10.2S3.2 14 3.2 8.8a4.6 4.6 0 0 1 8-3.1 4.6 4.6 0 0 1 9.6 3.1Z" />
+        </svg>
+        <span class="selection-nav-label">Mi selección</span>
+        <span id="request-count" class="request-count" aria-label="0 trabajos">0</span>
+      </a>
+      <a id="header-whatsapp" class="header-whatsapp" href="#contacto" aria-label="Consultar por WhatsApp" hidden>
+        <svg class="header-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M20.2 11.7a8.2 8.2 0 0 1-12.1 7.2L3 20l1.2-4.9a8.2 8.2 0 1 1 16-3.4Z" />
+          <path
+            d="M8.1 7.7c.2-.5.5-.6.8-.6h.6c.2 0 .4.1.5.4l.8 1.8c.1.2.1.4-.1.6l-.6.7c-.2.2-.2.4 0 .6.5.9 1.3 1.6 2.2 2.1.2.1.4.1.6-.1l.8-.9c.2-.2.4-.2.6-.1l1.7.8c.3.1.4.3.4.5 0 .4-.2 1.2-.7 1.6-.5.4-1.1.6-1.8.5-1-.1-2.3-.7-3.6-1.9-1.1-1-2.1-2.5-2.3-3.4-.3-.9 0-1.8.2-2.2Z" />
+        </svg>
+        <span class="header-whatsapp-label">WhatsApp</span>
+      </a>
+    </div>
+  </header>
+  <main id="contenido">
+    <section class="hero has-hero-image" id="inicio" aria-labelledby="hero-title">
+      <figure class="hero-feature">
+        <img src="/images/decor-center-entrada.png" alt="Entrada del establecimiento Decor Center." width="1241"
+          height="1268" fetchpriority="high" decoding="async">
+      </figure>
+      <div class="hero-copy-column">
+        <p class="eyebrow">Ebanistería · muebles en madera</p>
+        <h1 id="hero-title">Muebles hechos para vivirlos.</h1>
+        <p class="hero-copy">Explora los modelos publicados, revisa sus medidas y consulta directamente por el diseño
+          que te interesa.</p>
+        <div class="hero-actions">
+          <a class="button button-dark" href="#trabajos">Explorar muebles</a>
+          <a class="button button-outline" href="#mi-seleccion">Solicitar cotización</a>
         </div>
-        <div class="public-footer-legal">
-          <p>© <time id="copyright-year"></time> Carpintería. Todos los derechos reservados.</p>
-        </div>
+        <a class="hero-scroll-cue" href="#trabajos">Descubre los muebles <span aria-hidden="true">↓</span></a>
       </div>
-    </footer>
-  </body>
+    </section>
+    <section class="catalog-section" id="trabajos" aria-labelledby="work-title">
+      <div class="section-heading">
+        <div class="catalog-heading-copy">
+          <p class="eyebrow">Catálogo</p>
+          <h2 id="work-title">Nuestros trabajos</h2>
+          <p>Explora los trabajos publicados y consulta la información de cada uno.</p>
+        </div>
+        <p id="catalog-status" class="catalog-status" role="status" aria-live="polite">Cargando muebles…</p>
+      </div>
+      <div class="category-filters" role="group" aria-label="Filtrar muebles por categoría" hidden></div>
+      <div id="product-grid" class="product-grid" tabindex="-1" aria-busy="true"></div>
+    </section>
+
+    <section class="selection-section" id="mi-seleccion" aria-labelledby="selection-title">
+      <div class="selection-heading">
+        <div>
+          <p class="eyebrow">Consulta</p>
+          <h2 id="selection-title">Mi selección</h2>
+          <p>Revisa los trabajos que te interesan y envía una sola consulta por WhatsApp.</p>
+        </div>
+        <p id="request-status" class="request-status" role="status" aria-live="polite">Aún no has agregado trabajos.</p>
+      </div>
+      <div id="request-empty" class="selection-empty">
+        <p>Tu selección está vacía.</p><a class="button button-outline" href="#trabajos">Volver al catálogo</a>
+      </div>
+      <ol id="request-items" class="selection-items"></ol>
+      <div class="selection-actions">
+        <a class="button button-outline" href="#trabajos">Seguir explorando</a>
+        <button id="clear-request" class="button button-text" type="button" disabled>Vaciar selección</button>
+        <button id="send-whatsapp" class="button button-dark" type="button" disabled>Enviar selección por
+          WhatsApp</button>
+      </div>
+      <p class="selection-note">WhatsApp abrirá un mensaje con enlaces a los trabajos; no adjunta fotos ni videos
+        automáticamente.</p>
+      <p id="contact-unavailable" class="field-help" hidden>El contacto por WhatsApp no está disponible en este momento.
+      </p>
+    </section>
+
+    <section class="contact-section" id="contacto" aria-labelledby="contact-title">
+      <p class="eyebrow">Contacto directo</p>
+      <h2 id="contact-title">Hablemos de tu proyecto.</h2>
+      <p>Cuéntanos qué necesitas y revisamos contigo las opciones disponibles.</p>
+      <a id="general-whatsapp" class="button button-light" href="#contacto" hidden>Consultar por WhatsApp</a>
+      <p id="contact-unavailable-general" class="field-help" hidden>El contacto por WhatsApp no está disponible en este
+        momento.</p>
+    </section>
+  </main>
+  <dialog id="product-details-dialog" class="product-details-dialog" aria-labelledby="product-detail-title">
+    <div class="product-details-panel">
+      <button id="product-details-close" class="product-details-close" type="button"
+        aria-label="Cerrar detalles">×</button>
+      <div id="product-details-content"></div>
+    </div>
+  </dialog>
+  <dialog id="image-viewer-dialog" class="image-viewer-dialog" aria-label="Visor de fotografía">
+    <div class="image-viewer-panel">
+      <img id="image-viewer-image" class="image-viewer-image" alt="">
+      <button id="image-viewer-close" class="image-viewer-close" type="button"
+        aria-label="Cerrar fotografía ampliada">×</button>
+    </div>
+  </dialog>
+  <footer class="site-footer public-footer">
+    <div class="public-footer-inner">
+      <div class="public-footer-content">
+        <div class="public-footer-brand">
+          <a class="footer-title" href="/">decorCenter</a>
+          <p class="public-footer-description">Fabricación de muebles en madera y soluciones de carpintería.</p>
+        </div>
+        <nav class="public-footer-navigation" aria-label="Navegación del pie de página">
+          <p class="public-footer-heading">Navegación</p>
+          <ul>
+            <li><a href="/">Inicio</a></li>
+            <li><a href="#mi-seleccion">Mi selección</a></li>
+            <li><a href="#trabajos">Catálogo de muebles</a></li>
+            <li><a href="#contacto">Contacto directo</a></li>
+          </ul>
+        </nav>
+      </div>
+      <div class="public-footer-legal">
+        <p>© <time id="copyright-year"></time> decorCenter. Todos los derechos reservados.</p>
+      </div>
+    </div>
+  </footer>
+</body>
+
 </html>

@@ -16,6 +16,7 @@ const imageViewerDialog = document.querySelector('#image-viewer-dialog');
 const imageViewerImage = document.querySelector('#image-viewer-image');
 const imageViewerClose = document.querySelector('#image-viewer-close');
 const adminAccessLink = document.querySelector('#admin-access-link');
+const headerWhatsApp = document.querySelector('#header-whatsapp');
 const copyrightYear = document.querySelector('#copyright-year');
 const generalWhatsApp = document.querySelector('#general-whatsapp');
 const contactUnavailable = document.querySelector('#contact-unavailable');
@@ -34,6 +35,10 @@ fetch('/api/contact', { headers: { Accept: 'application/json' }, cache: 'no-stor
     const link = whatsappUrl('Hola, quisiera recibir información sobre sus trabajos de carpintería.');
     generalWhatsApp.href = link;
     generalWhatsApp.hidden = false;
+    if (headerWhatsApp) {
+      headerWhatsApp.href = link;
+      headerWhatsApp.hidden = false;
+    }
     contactUnavailable.hidden = true;
     generalContactUnavailable.hidden = true;
     renderRequest();
