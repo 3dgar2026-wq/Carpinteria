@@ -305,7 +305,9 @@ router.post('/categories', async (request, response) => {
     const name = requiredText(request.body.name, 'El nombre', 160);
     const slug = validatedSlug(request.body.slug);
     const description = optionalText(request.body.description, 'La descripción', 3000);
-    const pricingRules = parseConfig(request.body, 'pricingRules', validatedPricingRule, 'precio');
+    const pricingRules = Object.hasOwn(request.body, 'pricingRules')
+      ? parseConfig(request.body, 'pricingRules', validatedPricingRule, 'precio')
+      : null;
     const measurementTemplate = Object.hasOwn(request.body, 'measurementTemplate')
       ? validatedMeasurementConfig(request.body.measurementTemplate)
       : null;
