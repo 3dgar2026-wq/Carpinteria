@@ -19,6 +19,9 @@ const adminConfirmError = document.querySelector('#admin-confirm-error');
 const adminConfirmCloseButton = document.querySelector('#admin-confirm-close');
 const adminConfirmCancelButton = document.querySelector('#admin-confirm-cancel');
 const adminConfirmSubmitButton = document.querySelector('#admin-confirm-submit');
+const adminConfirmElements = [adminConfirmDialog, adminConfirmTitle, adminConfirmMessage, adminConfirmDetails,
+  adminConfirmError, adminConfirmCloseButton, adminConfirmCancelButton, adminConfirmSubmitButton];
+const adminConfirmAvailable = adminConfirmElements.every(Boolean);
 const photoSelectionList = document.querySelector('#photo-selection-list');
 const photoInboxStatus = document.querySelector('#photo-inbox-status');
 const photoUploadStatus = document.querySelector('#photo-upload-status');
@@ -209,6 +212,10 @@ function closeAdminConfirmation(confirmed) {
 }
 
 function confirmAdminAction({ title, message, confirmLabel = 'Confirmar', tone = 'primary', label = '', description = '', id = '', imageUrl = '', imageAlt = '' }, action) {
+  if (!adminConfirmAvailable) {
+    setStatus('No se pudo cargar el modal de confirmación. Recarga el panel antes de continuar.', true);
+    return Promise.resolve(false);
+  }
   if (pendingAdminConfirmation) return Promise.resolve(false);
   adminConfirmTitle.textContent = title;
   adminConfirmMessage.textContent = message;
@@ -226,48 +233,52 @@ function confirmAdminAction({ title, message, confirmLabel = 'Confirmar', tone =
   });
 }
 
-adminConfirmCancelButton.addEventListener('click', () => closeAdminConfirmation(false));
-adminConfirmCloseButton.addEventListener('click', () => closeAdminConfirmation(false));
-adminConfirmDialog.addEventListener('cancel', (event) => {
-  event.preventDefault();
-  closeAdminConfirmation(false);
-});
-adminConfirmDialog.addEventListener('keydown', (event) => {
-  if (event.key !== 'Tab') return;
-  const focusable = [...adminConfirmDialog.querySelectorAll('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')]
-    .filter((node) => !node.hidden);
-  if (!focusable.length) return;
-  const first = focusable[0];
-  const last = focusable.at(-1);
-  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-});
-adminConfirmSubmitButton.addEventListener('click', async () => {
-  const pending = pendingAdminConfirmation;
-  if (!pending || pending.busy) return;
-  pending.busy = true;
-  adminConfirmSubmitButton.disabled = true;
-  adminConfirmSubmitButton.setAttribute('aria-busy', 'true');
-  adminConfirmCancelButton.disabled = true;
-  adminConfirmCloseButton.disabled = true;
-  adminConfirmSubmitButton.textContent = 'Procesando…';
-  adminConfirmError.hidden = true;
-  try {
-    await pending.action();
-    pending.busy = false;
-    closeAdminConfirmation(true);
-  } catch (error) {
-    adminConfirmError.textContent = error.message || 'No se pudo completar la operación.';
-    adminConfirmError.hidden = false;
-    setStatus(adminConfirmError.textContent, true);
-    pending.busy = false;
-    adminConfirmSubmitButton.disabled = false;
-    adminConfirmSubmitButton.removeAttribute('aria-busy');
-    adminConfirmSubmitButton.textContent = adminConfirmSubmitButton.dataset.label || 'Confirmar';
-    adminConfirmCancelButton.disabled = false;
-    adminConfirmCloseButton.disabled = false;
-  }
-});
+if (adminConfirmAvailable) {
+  adminConfirmCancelButton.addEventListener('click', () => closeAdminConfirmation(false));
+  adminConfirmCloseButton.addEventListener('click', () => closeAdminConfirmation(false));
+  adminConfirmDialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    closeAdminConfirmation(false);
+  });
+  adminConfirmDialog.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab') return;
+    const focusable = [...adminConfirmDialog.querySelectorAll('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')]
+      .filter((node) => !node.hidden);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+  adminConfirmSubmitButton.addEventListener('click', async () => {
+    const pending = pendingAdminConfirmation;
+    if (!pending || pending.busy) return;
+    pending.busy = true;
+    adminConfirmSubmitButton.disabled = true;
+    adminConfirmSubmitButton.setAttribute('aria-busy', 'true');
+    adminConfirmCancelButton.disabled = true;
+    adminConfirmCloseButton.disabled = true;
+    adminConfirmSubmitButton.textContent = 'Procesando…';
+    adminConfirmError.hidden = true;
+    try {
+      await pending.action();
+      pending.busy = false;
+      closeAdminConfirmation(true);
+    } catch (error) {
+      adminConfirmError.textContent = error.message || 'No se pudo completar la operación.';
+      adminConfirmError.hidden = false;
+      setStatus(adminConfirmError.textContent, true);
+      pending.busy = false;
+      adminConfirmSubmitButton.disabled = false;
+      adminConfirmSubmitButton.removeAttribute('aria-busy');
+      adminConfirmSubmitButton.textContent = adminConfirmSubmitButton.dataset.label || 'Confirmar';
+      adminConfirmCancelButton.disabled = false;
+      adminConfirmCloseButton.disabled = false;
+    }
+  });
+} else {
+  setStatus('No se pudo cargar el modal de confirmación. Recarga el panel antes de continuar.', true);
+}
 
 function toSlug(value) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -2009,6 +2020,8 @@ async function deleteLibraryPhoto(media, button) {
   await confirmAdminAction({
     title: 'Eliminar fotografía de la biblioteca',
     message: `¿Eliminar definitivamente “${media.original_filename || 'esta fotografía'}” de la biblioteca? Esta acción puede ser irreversible.`,
+    confirmLabel: 'Eliminar',
+    tone: 'danger',
     label: media.original_filename || 'Fotografía',
     id: media.id,
     imageUrl: media.adminUrl || '',
