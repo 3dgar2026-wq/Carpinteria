@@ -21,12 +21,33 @@ const copyrightYear = document.querySelector('#copyright-year');
 const generalWhatsApp = document.querySelector('#general-whatsapp');
 const contactUnavailable = document.querySelector('#contact-unavailable');
 const generalContactUnavailable = document.querySelector('#contact-unavailable-general');
+const mobileMenu = document.querySelector('#main-nav');
+const mobileMenuToggle = document.querySelector('#mobile-menu-toggle');
+const mobileMenuQuote = document.querySelector('#mobile-menu-quote');
+mobileMenu.hidden = false;
+function setMobileMenuOpen(open) {
+  mobileMenu.classList.toggle('is-open', open);
+  mobileMenuToggle.setAttribute('aria-expanded', String(open));
+  mobileMenuToggle.setAttribute('aria-label', open ? 'Cerrar menú' : 'Abrir menú');
+  document.body.classList.toggle('mobile-menu-open', open);
+}
+mobileMenuToggle.addEventListener('click', () => setMobileMenuOpen(mobileMenuToggle.getAttribute('aria-expanded') !== 'true'));
+mobileMenu.addEventListener('click', (event) => {
+  if (event.target.closest('a[href^="#"]')) setMobileMenuOpen(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && mobileMenuToggle.getAttribute('aria-expanded') === 'true') {
+    setMobileMenuOpen(false);
+    mobileMenuToggle.focus();
+  }
+});
 let whatsappPhone = '';
 fetch('/api/contact', { headers: { Accept: 'application/json' }, cache: 'no-store' })
   .then((response) => response.ok ? response.json() : null)
   .then((contact) => {
     whatsappPhone = typeof contact?.whatsapp === 'string' ? contact.whatsapp : '';
     if (!whatsappPhone) {
+      if (mobileMenuQuote) mobileMenuQuote.hidden = true;
       if (contactUnavailable) contactUnavailable.hidden = false;
       if (generalContactUnavailable) generalContactUnavailable.hidden = false;
       renderRequest();
@@ -38,6 +59,10 @@ fetch('/api/contact', { headers: { Accept: 'application/json' }, cache: 'no-stor
     if (headerWhatsApp) {
       headerWhatsApp.href = link;
       headerWhatsApp.hidden = false;
+    }
+    if (mobileMenuQuote) {
+      mobileMenuQuote.href = whatsappUrl('Hola, quisiera cotizar un mueble.');
+      mobileMenuQuote.hidden = false;
     }
     contactUnavailable.hidden = true;
     generalContactUnavailable.hidden = true;

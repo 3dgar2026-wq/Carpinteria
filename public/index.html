@@ -24,11 +24,17 @@
   <a class="skip-link" href="#contenido">Saltar al contenido</a>
   <header class="site-header site-header-overlay">
     <a class="wordmark" href="#inicio" aria-label="Inicio">decorCenter</a>
-    <nav class="main-nav" aria-label="Navegación principal">
+    <button class="mobile-menu-toggle" id="mobile-menu-toggle" type="button" aria-expanded="false"
+      aria-controls="main-nav" aria-label="Abrir menú">
+      <span></span><span></span><span></span>
+    </button>
+    <nav class="main-nav" id="main-nav" aria-label="Navegación principal" hidden>
       <a href="#inicio">Inicio</a>
       <a href="#trabajos">Productos</a>
+      <a href="#nosotros">Nosotros</a>
       <a href="#contacto">Contacto</a>
       <a id="admin-access-link" class="admin-access-link" href="/admin" hidden>Administración</a>
+      <a class="mobile-menu-quote" id="mobile-menu-quote" href="#contacto" hidden>Cotiza tu mueble por WhatsApp</a>
     </nav>
     <div class="header-actions">
       <span class="header-actions-divider" aria-hidden="true"></span>
@@ -131,7 +137,7 @@
   <footer class="site-footer public-footer">
     <div class="public-footer-inner">
       <div class="public-footer-content">
-        <div class="public-footer-brand">
+        <div class="public-footer-brand" id="nosotros">
           <a class="footer-title" href="/">decorCenter</a>
           <p class="public-footer-description">Fabricación de muebles en madera y soluciones de carpintería.</p>
         </div>
@@ -146,7 +152,12 @@
         </nav>
       </div>
       <div class="public-footer-legal">
-        <p>© <time id="copyright-year"></time> decorCenter. Todos los derechos reservados.</p>
+        <div class="public-footer-legal-content">
+          <p class="public-footer-copyright">© <time id="copyright-year"></time> decorCenter. Todos los derechos
+            reservados.</p>
+          <p class="public-footer-media-credit">Información visual decorCenter.</p>
+          <a href="/terminos-y-condiciones.html">Términos y condiciones</a>
+        </div>
       </div>
     </div>
   </footer>
