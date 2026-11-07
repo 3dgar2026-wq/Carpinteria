@@ -341,6 +341,26 @@
         </div>
       </details>
     </main>
+    <dialog id="product-delete-dialog" class="product-delete-dialog" aria-labelledby="product-delete-title" aria-describedby="product-delete-warning">
+      <div class="product-delete-panel">
+        <h2 id="product-delete-title">Confirmar eliminación del trabajo</h2>
+        <p>Comprueba que seleccionaste el trabajo correcto antes de continuar.</p>
+        <div class="product-delete-review">
+          <img id="product-delete-image" class="product-delete-image" alt="" hidden>
+          <div id="product-delete-image-placeholder" class="product-delete-image product-delete-image-placeholder" role="img" aria-label="Fotografía principal no disponible" hidden>Fotografía no disponible</div>
+          <div class="product-delete-details">
+            <h3 id="product-delete-name"></h3>
+            <p id="product-delete-description" hidden></p>
+            <p class="product-delete-id">ID único: <code id="product-delete-id"></code></p>
+          </div>
+        </div>
+        <p id="product-delete-warning" class="product-delete-warning">La eliminación puede ser irreversible. El trabajo dejará de estar disponible y, si estaba publicado, desaparecerá de la tienda. Las fotografías no se eliminarán de la biblioteca multimedia ni de Cloudinary.</p>
+        <div class="admin-actions product-delete-actions">
+          <button id="cancel-product-delete" class="button button-outline" type="button">Cancelar</button>
+          <button id="confirm-product-delete" class="button button-danger" type="button">Eliminar definitivamente</button>
+        </div>
+      </div>
+    </dialog>
     <footer class="site-footer"><p>Panel privado</p></footer>
   </body>
 </html>

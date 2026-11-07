@@ -11,6 +11,14 @@ const productStatusFilter = document.querySelector('#product-status-filter');
 const productListStatus = document.querySelector('#product-list-status');
 const productEditor = document.querySelector('#product-editor');
 const productsEmptyHelp = document.querySelector('#products-empty-help');
+const productDeleteDialog = document.querySelector('#product-delete-dialog');
+const productDeleteImage = document.querySelector('#product-delete-image');
+const productDeleteImagePlaceholder = document.querySelector('#product-delete-image-placeholder');
+const productDeleteName = document.querySelector('#product-delete-name');
+const productDeleteDescription = document.querySelector('#product-delete-description');
+const productDeleteId = document.querySelector('#product-delete-id');
+const cancelProductDeleteButton = document.querySelector('#cancel-product-delete');
+const confirmProductDeleteButton = document.querySelector('#confirm-product-delete');
 const photoSelectionList = document.querySelector('#photo-selection-list');
 const photoInboxStatus = document.querySelector('#photo-inbox-status');
 const photoUploadStatus = document.querySelector('#photo-upload-status');
@@ -26,6 +34,8 @@ let editingProduct = null;
 let categoriesById = new Map();
 let currentCategories = [];
 let currentProducts = null;
+let pendingProductDeletion = null;
+let productDeleteTrigger = null;
 let productMeasurementsTouched = false;
 let selectedProductCategoryId = '';
 let fixedDimensionsFormatUnknown = false;
@@ -157,6 +167,49 @@ function makeButton(label, className, onClick) {
   button.addEventListener('click', onClick);
   return button;
 }
+
+function openProductDeleteDialog(product, trigger = document.activeElement) {
+  pendingProductDeletion = product;
+  productDeleteTrigger = trigger instanceof HTMLElement ? trigger : null;
+  productDeleteName.textContent = product.name;
+  productDeleteDescription.textContent = product.description ?? '';
+  productDeleteDescription.hidden = !product.description;
+  productDeleteId.textContent = String(product.id);
+
+  const cover = (product.media ?? []).find((media) => media.kind === 'image' && media.isCover)
+    ?? (product.media ?? []).find((media) => media.kind === 'image');
+  if (cover?.adminUrl) {
+    productDeleteImage.alt = cover.altText || `Fotografía principal de ${product.name}`;
+    productDeleteImage.hidden = false;
+    productDeleteImagePlaceholder.hidden = true;
+    productDeleteImage.onerror = () => {
+      productDeleteImage.hidden = true;
+      productDeleteImagePlaceholder.hidden = false;
+    };
+    productDeleteImage.src = cover.adminUrl;
+  } else {
+    productDeleteImage.removeAttribute('src');
+    productDeleteImage.alt = '';
+    productDeleteImage.hidden = true;
+    productDeleteImagePlaceholder.hidden = false;
+  }
+
+  productDeleteDialog.showModal();
+  cancelProductDeleteButton.focus();
+}
+
+cancelProductDeleteButton.addEventListener('click', () => productDeleteDialog.close());
+productDeleteDialog.addEventListener('close', () => {
+  pendingProductDeletion = null;
+  if (productDeleteTrigger?.isConnected) productDeleteTrigger.focus();
+  productDeleteTrigger = null;
+});
+confirmProductDeleteButton.addEventListener('click', () => {
+  const product = pendingProductDeletion;
+  if (!product) return;
+  productDeleteDialog.close();
+  void performProductDeletion(product);
+});
 
 function toSlug(value) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -1617,6 +1670,9 @@ function renderProducts(products) {
     } else {
       actions.append(makeButton('Publicar', 'button button-dark', () => changePublication(product, true)));
     }
+    const deleteButton = makeButton('Eliminar trabajo', 'button button-danger', () => openProductDeleteDialog(product, deleteButton));
+    deleteButton.setAttribute('aria-label', `Eliminar trabajo ${product.name}, ID ${product.id}`);
+    actions.append(deleteButton);
     item.append(actions);
     productList.append(item);
   }
@@ -2064,12 +2120,11 @@ async function changePublication(product, shouldPublish) {
   }
 }
 
-async function deleteProduct(product) {
-  const visibilityNote = product.is_published
-    ? ' También dejará de aparecer en la tienda pública.'
-    : '';
-  if (!window.confirm(`¿Eliminar el trabajo “${product.name}”? Esta acción no se puede deshacer.${visibilityNote} Las fotografías se conservarán en la Biblioteca de imágenes.`)) return;
+function deleteProduct(product) {
+  openProductDeleteDialog(product);
+}
 
+async function performProductDeletion(product) {
   let result;
   try {
     result = await api(`/api/admin/products/${encodeURIComponent(String(product.id))}`, {
