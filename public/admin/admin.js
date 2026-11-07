@@ -11,14 +11,14 @@ const productStatusFilter = document.querySelector('#product-status-filter');
 const productListStatus = document.querySelector('#product-list-status');
 const productEditor = document.querySelector('#product-editor');
 const productsEmptyHelp = document.querySelector('#products-empty-help');
-const productDeleteDialog = document.querySelector('#product-delete-dialog');
-const productDeleteImage = document.querySelector('#product-delete-image');
-const productDeleteImagePlaceholder = document.querySelector('#product-delete-image-placeholder');
-const productDeleteName = document.querySelector('#product-delete-name');
-const productDeleteDescription = document.querySelector('#product-delete-description');
-const productDeleteId = document.querySelector('#product-delete-id');
-const cancelProductDeleteButton = document.querySelector('#cancel-product-delete');
-const confirmProductDeleteButton = document.querySelector('#confirm-product-delete');
+const adminConfirmDialog = document.querySelector('#admin-confirm-dialog');
+const adminConfirmTitle = document.querySelector('#admin-confirm-title');
+const adminConfirmMessage = document.querySelector('#admin-confirm-message');
+const adminConfirmDetails = document.querySelector('#admin-confirm-details');
+const adminConfirmError = document.querySelector('#admin-confirm-error');
+const adminConfirmCloseButton = document.querySelector('#admin-confirm-close');
+const adminConfirmCancelButton = document.querySelector('#admin-confirm-cancel');
+const adminConfirmSubmitButton = document.querySelector('#admin-confirm-submit');
 const photoSelectionList = document.querySelector('#photo-selection-list');
 const photoInboxStatus = document.querySelector('#photo-inbox-status');
 const photoUploadStatus = document.querySelector('#photo-upload-status');
@@ -34,8 +34,7 @@ let editingProduct = null;
 let categoriesById = new Map();
 let currentCategories = [];
 let currentProducts = null;
-let pendingProductDeletion = null;
-let productDeleteTrigger = null;
+let pendingAdminConfirmation = null;
 let productMeasurementsTouched = false;
 let selectedProductCategoryId = '';
 let fixedDimensionsFormatUnknown = false;
@@ -168,47 +167,106 @@ function makeButton(label, className, onClick) {
   return button;
 }
 
-function openProductDeleteDialog(product, trigger = document.activeElement) {
-  pendingProductDeletion = product;
-  productDeleteTrigger = trigger instanceof HTMLElement ? trigger : null;
-  productDeleteName.textContent = product.name;
-  productDeleteDescription.textContent = product.description ?? '';
-  productDeleteDescription.hidden = !product.description;
-  productDeleteId.textContent = String(product.id);
-
-  const cover = (product.media ?? []).find((media) => media.kind === 'image' && media.isCover)
-    ?? (product.media ?? []).find((media) => media.kind === 'image');
-  if (cover?.adminUrl) {
-    productDeleteImage.alt = cover.altText || `Fotografía principal de ${product.name}`;
-    productDeleteImage.hidden = false;
-    productDeleteImagePlaceholder.hidden = true;
-    productDeleteImage.onerror = () => {
-      productDeleteImage.hidden = true;
-      productDeleteImagePlaceholder.hidden = false;
-    };
-    productDeleteImage.src = cover.adminUrl;
-  } else {
-    productDeleteImage.removeAttribute('src');
-    productDeleteImage.alt = '';
-    productDeleteImage.hidden = true;
-    productDeleteImagePlaceholder.hidden = false;
+function createAdminConfirmationDetails({ label, description = '', id = '', imageUrl = '', imageAlt = '' }) {
+  adminConfirmDetails.replaceChildren();
+  if (imageUrl) {
+    const image = element('img', 'admin-confirm-image');
+    image.src = imageUrl;
+    image.alt = imageAlt || label || 'Elemento seleccionado';
+    image.addEventListener('error', () => image.remove());
+    adminConfirmDetails.append(image);
   }
-
-  productDeleteDialog.showModal();
-  cancelProductDeleteButton.focus();
+  const copy = element('div', 'admin-confirm-item-copy');
+  if (label) copy.append(element('h3', '', label));
+  if (description) copy.append(element('p', '', description));
+  if (id !== '') {
+    const idLine = element('p', 'admin-confirm-item-id', 'ID único: ');
+    idLine.append(element('code', '', String(id)));
+    copy.append(idLine);
+  }
+  if (!imageUrl && !label && !description && id === '') {
+    adminConfirmDetails.hidden = true;
+    return;
+  }
+  adminConfirmDetails.append(copy);
+  adminConfirmDetails.hidden = false;
 }
 
-cancelProductDeleteButton.addEventListener('click', () => productDeleteDialog.close());
-productDeleteDialog.addEventListener('close', () => {
-  pendingProductDeletion = null;
-  if (productDeleteTrigger?.isConnected) productDeleteTrigger.focus();
-  productDeleteTrigger = null;
+function closeAdminConfirmation(confirmed) {
+  const pending = pendingAdminConfirmation;
+  if (!pending || pending.busy) return;
+  pendingAdminConfirmation = null;
+  adminConfirmDialog.close();
+  adminConfirmDetails.replaceChildren();
+  adminConfirmDetails.hidden = true;
+  adminConfirmError.hidden = true;
+  adminConfirmSubmitButton.disabled = false;
+  adminConfirmSubmitButton.removeAttribute('aria-busy');
+  adminConfirmCancelButton.disabled = false;
+  adminConfirmCloseButton.disabled = false;
+  if (pending.trigger?.isConnected) pending.trigger.focus();
+  pending.resolve(confirmed);
+}
+
+function confirmAdminAction({ title, message, confirmLabel = 'Confirmar', tone = 'primary', label = '', description = '', id = '', imageUrl = '', imageAlt = '' }, action) {
+  if (pendingAdminConfirmation) return Promise.resolve(false);
+  adminConfirmTitle.textContent = title;
+  adminConfirmMessage.textContent = message;
+  adminConfirmSubmitButton.textContent = confirmLabel;
+  adminConfirmSubmitButton.dataset.label = confirmLabel;
+  adminConfirmSubmitButton.classList.toggle('button-danger', tone === 'danger');
+  adminConfirmSubmitButton.classList.toggle('button-dark', tone !== 'danger');
+  adminConfirmError.hidden = true;
+  createAdminConfirmationDetails({ label, description, id, imageUrl, imageAlt });
+  const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  return new Promise((resolve) => {
+    pendingAdminConfirmation = { resolve, action, trigger, busy: false };
+    adminConfirmDialog.showModal();
+    adminConfirmCancelButton.focus();
+  });
+}
+
+adminConfirmCancelButton.addEventListener('click', () => closeAdminConfirmation(false));
+adminConfirmCloseButton.addEventListener('click', () => closeAdminConfirmation(false));
+adminConfirmDialog.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  closeAdminConfirmation(false);
 });
-confirmProductDeleteButton.addEventListener('click', () => {
-  const product = pendingProductDeletion;
-  if (!product) return;
-  productDeleteDialog.close();
-  void performProductDeletion(product);
+adminConfirmDialog.addEventListener('keydown', (event) => {
+  if (event.key !== 'Tab') return;
+  const focusable = [...adminConfirmDialog.querySelectorAll('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')]
+    .filter((node) => !node.hidden);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+});
+adminConfirmSubmitButton.addEventListener('click', async () => {
+  const pending = pendingAdminConfirmation;
+  if (!pending || pending.busy) return;
+  pending.busy = true;
+  adminConfirmSubmitButton.disabled = true;
+  adminConfirmSubmitButton.setAttribute('aria-busy', 'true');
+  adminConfirmCancelButton.disabled = true;
+  adminConfirmCloseButton.disabled = true;
+  adminConfirmSubmitButton.textContent = 'Procesando…';
+  adminConfirmError.hidden = true;
+  try {
+    await pending.action();
+    pending.busy = false;
+    closeAdminConfirmation(true);
+  } catch (error) {
+    adminConfirmError.textContent = error.message || 'No se pudo completar la operación.';
+    adminConfirmError.hidden = false;
+    setStatus(adminConfirmError.textContent, true);
+    pending.busy = false;
+    adminConfirmSubmitButton.disabled = false;
+    adminConfirmSubmitButton.removeAttribute('aria-busy');
+    adminConfirmSubmitButton.textContent = adminConfirmSubmitButton.dataset.label || 'Confirmar';
+    adminConfirmCancelButton.disabled = false;
+    adminConfirmCloseButton.disabled = false;
+  }
 });
 
 function toSlug(value) {
@@ -1441,7 +1499,7 @@ function updateProductTemplateInfo() {
   }
 }
 
-function applyCategoryTemplate(confirmReplace = true) {
+async function applyCategoryTemplate(confirmReplace = true) {
   const category = categoriesById.get(document.querySelector('#product-category').value);
   const template = category?.measurement_template;
   if (!template?.dimensions?.length) {
@@ -1449,12 +1507,21 @@ function applyCategoryTemplate(confirmReplace = true) {
     return false;
   }
   const existing = readMeasurementRows('product-dimensions');
-  if (confirmReplace && existing.length && !window.confirm('Se quitarán las medidas actuales de este producto y se copiarán las de la categoría. La plantilla de la categoría no cambiará. Después podrás personalizar esta copia. ¿Deseas continuar?')) {
-    return false;
+  const applyTemplate = () => {
+    renderMeasurementEditor('product-dimensions', JSON.parse(JSON.stringify(template)), () => { productMeasurementsTouched = true; });
+    productMeasurementsTouched = true;
+    setStatus('Plantilla copiada. Ahora puedes ajustar las medidas solo para este producto.');
+  };
+  if (confirmReplace && existing.length) {
+    const confirmed = await confirmAdminAction({
+      title: 'Reemplazar medidas actuales',
+      message: 'Se quitarán las medidas actuales de este producto y se copiarán las de la categoría. La plantilla de la categoría no cambiará. Después podrás personalizar esta copia. ¿Deseas continuar?',
+      label: category.name,
+    }, async () => applyTemplate());
+    if (!confirmed) return false;
+    return true;
   }
-  renderMeasurementEditor('product-dimensions', JSON.parse(JSON.stringify(template)), () => { productMeasurementsTouched = true; });
-  productMeasurementsTouched = true;
-  setStatus('Plantilla copiada. Ahora puedes ajustar las medidas solo para este producto.');
+  applyTemplate();
   return true;
 }
 
@@ -1479,7 +1546,7 @@ function measurementRowsMatchTemplate(rows, template) {
   }
 }
 
-function handleProductCategoryChange() {
+async function handleProductCategoryChange() {
   const select = document.querySelector('#product-category');
   const newCategoryId = select.value;
   const category = categoriesById.get(newCategoryId);
@@ -1495,8 +1562,11 @@ function handleProductCategoryChange() {
       if (measurementRowsMatchTemplate(readMeasurementRows('product-dimensions'), category.measurement_template)) {
         setStatus(`La plantilla de “${category.name}” coincide con las medidas actuales; se conservaron.`);
       } else {
-        const shouldApply = window.confirm(`La plantilla de “${category.name}” propone otras medidas para pedir al cliente. ¿Quieres reemplazar solo esa lista por una copia? Las dimensiones fijas del producto y la plantilla original no cambiarán. Si eliges Cancelar, conservarás las medidas actuales.`);
-        if (shouldApply) applyCategoryTemplate(false);
+        await confirmAdminAction({
+          title: 'Usar plantilla de medidas',
+          message: `La plantilla de “${category.name}” propone otras medidas para pedir al cliente. ¿Quieres reemplazar solo esa lista por una copia? Las dimensiones fijas del producto y la plantilla original no cambiarán. Si cancelas, conservarás las medidas actuales.`,
+          label: category.name,
+        }, async () => applyCategoryTemplate(false));
       }
     } else if (productMeasurementsTouched && hasProductMeasurements && category) {
       setStatus(`“${category.name}” no tiene plantilla. Se conservaron las medidas que ya configuraste.`);
@@ -1559,11 +1629,18 @@ function renderMedia(product) {
       updateProductGallery(product, mediaItems, mediaItems.find((photo) => photo.isCover)?.id ?? null, publicIds);
     }));
     controls.append(makeButton('Retirar de galería', 'button button-text', () => {
-      if (!window.confirm(`¿Retirar esta fotografía de “${product.name}”? Se conservará en la Biblioteca de imágenes y volverá a pendientes si ningún otro trabajo la utiliza.`)) return;
-      const remaining = mediaItems.filter((photo) => String(photo.id) !== String(media.id));
-      const newCover = media.isCover ? (remaining[0]?.id ?? null) : mediaItems.find((photo) => photo.isCover)?.id ?? null;
-      const publicIds = remaining.filter((photo) => photo.isPublic !== false).map((photo) => photo.id);
-      updateProductGallery(product, remaining, newCover, publicIds);
+      void confirmAdminAction({
+        title: 'Retirar fotografía de la galería',
+        message: `¿Retirar esta fotografía de “${product.name}”? Se conservará en la Biblioteca de imágenes y volverá a pendientes si ningún otro trabajo la utiliza.`,
+        label: media.originalFilename || 'Fotografía del trabajo',
+        id: media.id,
+        imageUrl: media.adminUrl || '',
+      }, async () => {
+        const remaining = mediaItems.filter((photo) => String(photo.id) !== String(media.id));
+        const newCover = media.isCover ? (remaining[0]?.id ?? null) : mediaItems.find((photo) => photo.isCover)?.id ?? null;
+        const publicIds = remaining.filter((photo) => photo.isPublic !== false).map((photo) => photo.id);
+        await updateProductGallery(product, remaining, newCover, publicIds, true);
+      });
     }));
     item.append(controls);
     list.append(item);
@@ -1578,7 +1655,7 @@ function renderMedia(product) {
   return section;
 }
 
-async function updateProductGallery(product, mediaItems, coverId, publicMediaIds = mediaItems.filter((media) => media.isPublic !== false).map((media) => media.id)) {
+async function updateProductGallery(product, mediaItems, coverId, publicMediaIds = mediaItems.filter((media) => media.isPublic !== false).map((media) => media.id), throwOnError = false) {
   try {
     const result = await api(`/api/admin/products/${encodeURIComponent(product.id)}/media`, {
       method: 'PUT',
@@ -1597,6 +1674,7 @@ async function updateProductGallery(product, mediaItems, coverId, publicMediaIds
       showNotification(message, { type: 'error' });
     }
   } catch (error) {
+    if (throwOnError) throw error;
     setStatus(`No se pudo actualizar la galería: ${error.message}`, true);
     showNotification(`No se pudo actualizar la galería: ${error.message}`, { type: 'error' });
   }
@@ -1928,9 +2006,15 @@ async function assignLibraryPhoto(media, productId, button) {
 }
 
 async function deleteLibraryPhoto(media, button) {
-  if (!window.confirm(`¿Eliminar definitivamente “${media.original_filename || 'esta fotografía'}” de la biblioteca?`)) return;
-  button.disabled = true;
-  try {
+  await confirmAdminAction({
+    title: 'Eliminar fotografía de la biblioteca',
+    message: `¿Eliminar definitivamente “${media.original_filename || 'esta fotografía'}” de la biblioteca? Esta acción puede ser irreversible.`,
+    label: media.original_filename || 'Fotografía',
+    id: media.id,
+    imageUrl: media.adminUrl || '',
+  }, async () => {
+    button.disabled = true;
+    try {
     const result = await api(`/api/admin/media/${encodeURIComponent(media.id)}`, { method: 'DELETE' });
     await loadData();
     const status = document.querySelector('#image-library-status');
@@ -1941,9 +2025,10 @@ async function deleteLibraryPhoto(media, button) {
     const status = document.querySelector('#image-library-status');
     status.textContent = error.message;
     status.dataset.state = 'error';
-    showNotification(error.message, { type: 'error' });
     button.disabled = false;
-  }
+      throw error;
+    }
+  });
 }
 
 async function assignPendingPhoto(media, productId, button) {
@@ -1987,9 +2072,15 @@ function openWizardWithPendingPhoto(media) {
 }
 
 async function deletePendingPhoto(media, button) {
-  if (!window.confirm(`¿Eliminar “${media.original_filename || 'esta fotografía'}” de forma permanente?`)) return;
-  button.disabled = true;
-  try {
+  await confirmAdminAction({
+    title: 'Eliminar fotografía pendiente',
+    message: `¿Eliminar “${media.original_filename || 'esta fotografía'}” de forma permanente? Esta acción puede ser irreversible.`,
+    label: media.original_filename || 'Fotografía',
+    id: media.id,
+    imageUrl: media.adminUrl || '',
+  }, async () => {
+    button.disabled = true;
+    try {
     const result = await api(`/api/admin/media/${encodeURIComponent(media.id)}`, { method: 'DELETE' });
     await Promise.all([loadPhotoInbox(), loadImageLibrary()]);
     photoInboxStatus.textContent = result.message || 'Se eliminó la fotografía pendiente.';
@@ -1998,9 +2089,10 @@ async function deletePendingPhoto(media, button) {
   } catch (error) {
     photoInboxStatus.textContent = error.message;
     photoInboxStatus.dataset.state = 'error';
-    showNotification(error.message, { type: 'error' });
     button.disabled = false;
-  }
+      throw error;
+    }
+  });
 }
 
 async function uploadSelectedPhotos(retryOnly = false) {
@@ -2109,21 +2201,46 @@ async function loadData() {
 
 async function changePublication(product, shouldPublish) {
   const action = shouldPublish ? 'publicar' : 'despublicar';
-  if (shouldPublish && !window.confirm(`¿Publicar “${product.name}” en el catálogo público?`)) return;
-  try {
+  const perform = async () => {
     const result = await api(`/api/admin/products/${encodeURIComponent(product.id)}/${shouldPublish ? 'publish' : 'unpublish'}`, {
       method: 'POST',
       body: '{}',
     });
     setStatus(result.message);
     await loadData();
-  } catch (error) {
-    setStatus(`No se pudo ${action} el trabajo: ${error.message}`, true);
+  };
+  if (shouldPublish) {
+    await confirmAdminAction({
+      title: 'Publicar trabajo',
+      message: `¿Publicar “${product.name}” en el catálogo público?`,
+      label: product.name,
+      description: product.description || '',
+      id: product.id,
+      imageUrl: (product.media ?? []).find((item) => item.kind === 'image' && item.isCover)?.adminUrl || '',
+    }, async () => {
+      try { await perform(); }
+      catch (error) { throw new Error(`No se pudo ${action} el trabajo: ${error.message}`); }
+    });
+  } else {
+    try { await perform(); }
+    catch (error) { setStatus(`No se pudo ${action} el trabajo: ${error.message}`, true); }
   }
 }
 
 function deleteProduct(product) {
-  openProductDeleteDialog(product);
+  const cover = (product.media ?? []).find((media) => media.kind === 'image' && media.isCover)
+    ?? (product.media ?? []).find((media) => media.kind === 'image');
+  void confirmAdminAction({
+    title: 'Confirmar eliminación del trabajo',
+    message: 'Comprueba que seleccionaste el trabajo correcto antes de continuar. La eliminación puede ser irreversible. Las fotografías no se eliminarán de la biblioteca multimedia ni de Cloudinary.',
+    confirmLabel: 'Eliminar definitivamente',
+    tone: 'danger',
+    label: product.name,
+    description: product.description || '',
+    id: product.id,
+    imageUrl: cover?.adminUrl || '',
+    imageAlt: cover?.altText || `Fotografía principal de ${product.name}`,
+  }, () => performProductDeletion(product));
 }
 
 async function performProductDeletion(product) {
@@ -2134,7 +2251,7 @@ async function performProductDeletion(product) {
     });
   } catch (error) {
     setStatus(error.message || 'No se pudo eliminar el trabajo.', true);
-    return;
+    throw error;
   }
 
   const [productResult, categoryResult] = await Promise.allSettled([
@@ -2192,38 +2309,39 @@ async function deleteCategory(category) {
     return;
   }
 
-  const confirmed = window.confirm(
-    `¿Eliminar la categoría “${category.name}”? No tiene dependencias conocidas y no se borrarán trabajos ni otros datos asociados.`,
-  );
-  if (!confirmed) return;
-
   const categoryId = String(category.id);
-  let result;
-  try {
-    result = await api(`/api/admin/categories/${encodeURIComponent(categoryId)}`, {
-      method: 'DELETE',
-    });
-  } catch (error) {
-    if (error.status === 409) {
-      await loadData();
-      openCategoryDependencies(category.id);
+  await confirmAdminAction({
+    title: 'Eliminar categoría',
+    message: `¿Eliminar la categoría “${category.name}”? No tiene dependencias conocidas y no se borrarán trabajos ni otros datos asociados.`,
+    confirmLabel: 'Eliminar definitivamente',
+    tone: 'danger',
+    label: category.name,
+    description: category.description || '',
+    id: categoryId,
+  }, async () => {
+    let result;
+    try {
+      result = await api(`/api/admin/categories/${encodeURIComponent(categoryId)}`, { method: 'DELETE' });
+    } catch (error) {
+      if (error.status === 409) {
+        await loadData();
+        openCategoryDependencies(category.id);
+      }
+      throw new Error(error.message || 'No se pudo eliminar la categoría.');
     }
-    setStatus(error.message || 'No se pudo eliminar la categoría.', true);
-    return;
-  }
-
-  if (document.querySelector('#category-id').value === categoryId) resetCategoryForm();
-  try {
-    const categoryResult = await api('/api/admin/categories');
-    renderCategories(categoryResult.categories, currentProducts);
-    if (categoryResult.categories.some((item) => String(item.id) === categoryId)) {
-      setStatus('El servidor respondió a la solicitud, pero la categoría todavía aparece al volver a consultarla. No se pudo confirmar su eliminación.', true);
-      return;
+    if (document.querySelector('#category-id').value === categoryId) resetCategoryForm();
+    try {
+      const categoryResult = await api('/api/admin/categories');
+      if (categoryResult.categories.some((item) => String(item.id) === categoryId)) {
+        setStatus('El servidor respondió, pero la categoría todavía aparece al volver a consultarla. Recarga el panel para verificar su estado.', true);
+        return;
+      }
+      renderCategories(categoryResult.categories, currentProducts);
+      setStatus(result.message || 'Categoría eliminada.');
+    } catch (error) {
+      setStatus(`El servidor aceptó la eliminación, pero no se pudo actualizar la lista. Recarga el panel para verificarla. ${error.message}`, true);
     }
-    setStatus(result.message || 'Categoría eliminada.');
-  } catch (error) {
-    setStatus(`La solicitud de eliminación fue aceptada, pero no se pudo confirmar al actualizar la lista. Recarga la página para comprobar el estado. ${error.message}`, true);
-  }
+  });
 }
 
 async function saveCategory(payload, { id = '', selectForProduct = false } = {}) {
@@ -2280,6 +2398,67 @@ categoryForm.addEventListener('submit', async (event) => {
   }
 });
 
+async function persistProduct(shouldPublish, { throwOnError = false } = {}) {
+  const saveButtons = [document.querySelector('#save-draft-button'), document.querySelector('#save-publish-button')];
+  const originalSaveButtonLabels = saveButtons.map((button) => button.textContent);
+  const activeSaveButton = shouldPublish ? saveButtons[1] : saveButtons[0];
+  wizardSaveInProgress = true;
+  saveButtons.forEach((button) => {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+  });
+  activeSaveButton.textContent = shouldPublish ? 'Publicando…' : 'Guardando…';
+  let productSaved = false;
+  try {
+    const id = document.querySelector('#product-id').value;
+    const result = await api(id ? `/api/admin/products/${encodeURIComponent(id)}` : '/api/admin/products', {
+      method: id ? 'PATCH' : 'POST',
+      body: JSON.stringify({
+        name: document.querySelector('#product-name').value,
+        slug: document.querySelector('#product-slug').value,
+        description: document.querySelector('#product-description').value,
+        categoryId: document.querySelector('#product-category').value,
+        measurementConfig: collectMeasurementConfig('product-dimensions'),
+        ...(!fixedDimensionsFormatUnknown ? { fixedDimensions: collectFixedDimensions() } : {}),
+      }),
+    });
+    const savedId = id || result.product?.id;
+    if (!savedId) throw new Error('El servidor no confirmó el identificador del mueble guardado. La información permanece en el formulario.');
+    productSaved = true;
+    document.querySelector('#product-id').value = String(savedId);
+    await saveWizardGallery(savedId);
+    await saveWizardVideo(savedId);
+    let completionMessage = result.message || 'Mueble guardado.';
+    if (shouldPublish && savedId) {
+      const publication = await api(`/api/admin/products/${encodeURIComponent(savedId)}/publish`, { method: 'POST', body: '{}' });
+      completionMessage = publication.message;
+    } else if (editingProduct?.is_published) {
+      completionMessage = 'Cambios guardados. El mueble sigue publicado.';
+    }
+    const refreshed = await loadData();
+    if (!refreshed) completionMessage += ' No se pudo actualizar por completo la lista del panel; recárgala para ver el estado más reciente.';
+    productForm.hidden = true;
+    document.querySelector('#product-save-result-message').textContent = completionMessage;
+    document.querySelector('#product-save-result').hidden = false;
+    setStatus(completionMessage, !refreshed);
+    showNotification(completionMessage, { type: refreshed ? 'success' : 'error' });
+  } catch (error) {
+    const message = productSaved
+      ? `El mueble quedó guardado, pero no se pudo completar la operación de fotografías, video o publicación. ${error.message} Tus datos siguen en el asistente; puedes corregirlo y volver a guardar.`
+      : error.message;
+    setStatus(message, true);
+    showNotification(message, { type: 'error' });
+    if (throwOnError) throw new Error(message);
+  } finally {
+    wizardSaveInProgress = false;
+    saveButtons.forEach((button, index) => {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+      button.textContent = originalSaveButtonLabels[index];
+    });
+  }
+}
+
 productForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (currentWizardStep !== 5) {
@@ -2320,66 +2499,16 @@ productForm.addEventListener('submit', async (event) => {
     return;
   }
   const shouldPublish = event.submitter?.dataset.saveMode === 'publish';
-  if (shouldPublish && !window.confirm('¿Guardar y mostrar este producto en tu tienda?')) return;
-  const saveButtons = [document.querySelector('#save-draft-button'), document.querySelector('#save-publish-button')];
-  const originalSaveButtonLabels = saveButtons.map((button) => button.textContent);
-  const activeSaveButton = shouldPublish ? saveButtons[1] : saveButtons[0];
-  wizardSaveInProgress = true;
-  saveButtons.forEach((button) => {
-    button.disabled = true;
-    button.setAttribute('aria-busy', 'true');
-  });
-  activeSaveButton.textContent = shouldPublish ? 'Publicando…' : 'Guardando…';
-  let productSaved = false;
-  try {
-    const id = document.querySelector('#product-id').value;
-    const result = await api(id ? `/api/admin/products/${encodeURIComponent(id)}` : '/api/admin/products', {
-      method: id ? 'PATCH' : 'POST',
-      body: JSON.stringify({
-        name: document.querySelector('#product-name').value,
-        slug: document.querySelector('#product-slug').value,
-        description: document.querySelector('#product-description').value,
-        categoryId: document.querySelector('#product-category').value,
-        measurementConfig: collectMeasurementConfig('product-dimensions'),
-        ...(!fixedDimensionsFormatUnknown ? { fixedDimensions: collectFixedDimensions() } : {}),
-      }),
-    });
-    const savedId = id || result.product?.id;
-    if (!savedId) throw new Error('El servidor no confirmó el identificador del mueble guardado. La información permanece en el formulario.');
-    productSaved = true;
-    document.querySelector('#product-id').value = String(savedId);
-    await saveWizardGallery(savedId);
-    await saveWizardVideo(savedId);
-    let completionMessage = result.message || 'Mueble guardado.';
-    if (shouldPublish && savedId) {
-      const publication = await api(`/api/admin/products/${encodeURIComponent(savedId)}/publish`, {
-        method: 'POST',
-        body: '{}',
-      });
-      completionMessage = publication.message;
-    } else if (editingProduct?.is_published) {
-      completionMessage = 'Cambios guardados. El mueble sigue publicado.';
-    }
-    const refreshed = await loadData();
-    if (!refreshed) completionMessage += ' No se pudo actualizar por completo la lista del panel; recárgala para ver el estado más reciente.';
-    productForm.hidden = true;
-    document.querySelector('#product-save-result-message').textContent = completionMessage;
-    document.querySelector('#product-save-result').hidden = false;
-    setStatus(completionMessage, !refreshed);
-    showNotification(completionMessage, { type: refreshed ? 'success' : 'error' });
-  } catch (error) {
-    const message = productSaved
-      ? `El mueble quedó guardado, pero no se pudo completar la operación de fotografías, video o publicación. ${error.message} Tus datos siguen en el asistente; puedes corregirlo y volver a guardar.`
-      : error.message;
-    setStatus(message, true);
-    showNotification(message, { type: 'error' });
-  } finally {
-    wizardSaveInProgress = false;
-    saveButtons.forEach((button, index) => {
-      button.disabled = false;
-      button.removeAttribute('aria-busy');
-      button.textContent = originalSaveButtonLabels[index];
-    });
+  if (shouldPublish) {
+    await confirmAdminAction({
+      title: 'Guardar y publicar trabajo',
+      message: '¿Guardar y mostrar este producto en tu tienda?',
+      label: nameInput.value.trim(),
+      description: document.querySelector('#product-description').value.trim(),
+      id: document.querySelector('#product-id').value,
+    }, () => persistProduct(true, { throwOnError: true }));
+  } else {
+    await persistProduct(false);
   }
 });
 
@@ -2618,22 +2747,23 @@ document.querySelector('#logout-button').addEventListener('click', async (event)
 });
 
 document.querySelector('#revoke-sessions-button').addEventListener('click', async (event) => {
-  if (!window.confirm('Se cerrarán todas las sesiones administrativas. Tendrás que iniciar sesión de nuevo. ¿Continuar?')) return;
   const button = event.currentTarget;
-  const originalText = button.textContent;
-  button.disabled = true;
-  button.setAttribute('aria-busy', 'true');
-  button.textContent = 'Cerrando sesiones…';
-  try {
-    await api('/api/admin/sessions/revoke', { method: 'POST', body: '{}' });
-    window.location.assign('/admin/login');
-  } catch (error) {
-    button.disabled = false;
-    button.removeAttribute('aria-busy');
-    button.textContent = originalText;
-    setStatus(error.message || 'No fue posible revocar las sesiones.', true);
-    showNotification(error.message || 'No fue posible revocar las sesiones.', { type: 'error' });
-  }
+  await confirmAdminAction({
+    title: 'Cerrar todas las sesiones',
+    message: 'Se cerrarán todas las sesiones administrativas. Tendrás que iniciar sesión de nuevo. ¿Continuar?',
+    confirmLabel: 'Cerrar sesiones',
+    tone: 'danger',
+    label: 'Todas las sesiones administrativas',
+  }, async () => {
+    button.disabled = true;
+    try {
+      await api('/api/admin/sessions/revoke', { method: 'POST', body: '{}' });
+      window.location.assign('/admin/login');
+    } catch (error) {
+      button.disabled = false;
+      throw new Error(error.message || 'No fue posible revocar las sesiones.');
+    }
+  });
 });
 
 function addSelectedPhotoFiles(files) {
