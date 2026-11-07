@@ -44,6 +44,9 @@
 .admin-form input[aria-invalid="true"], .admin-form textarea[aria-invalid="true"] { border-width: 2px; border-color: var(--color-burnt-wine); }
 .admin-page .field-error { color: var(--color-ink-stone); }
 .admin-actions { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; }
+.product-delete-row { grid-column: 1 / -1; margin-top: -.35rem; display: flex; align-items: center; }
+.product-delete-trigger { min-height: 2.55rem; padding: .45rem .7rem; border-color: rgba(130,71,47,.7); background: transparent; color: var(--copper-dark); font-size: .74rem; letter-spacing: .02em; text-transform: none; }
+.product-delete-trigger:hover:not(:disabled) { border-color: var(--copper-dark); background: rgba(130,71,47,.08); color: var(--copper-dark); }
 .category-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
 .category-actions .button { width: 100%; min-width: 0; }
 .button-danger { color: var(--color-burnt-wine); border-color: var(--color-burnt-wine); background: transparent; }
@@ -387,6 +390,8 @@
   .product-list-tools { grid-template-columns: 1fr; }
   .product-list-tools .field-help { grid-column: 1; }
   .admin-page .product-grid .admin-record { grid-template-columns: minmax(0, 1fr); }
+  .product-delete-row { margin-top: -.4rem; }
+  .product-delete-trigger { width: 100%; min-height: 2.75rem; justify-content: center; }
   .product-delete-review { grid-template-columns: minmax(0, 1fr); }
   .product-delete-image { max-height: 16rem; }
   .product-delete-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
