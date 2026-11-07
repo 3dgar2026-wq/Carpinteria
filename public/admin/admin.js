@@ -1759,7 +1759,7 @@ function renderProducts(products) {
     } else {
       actions.append(makeButton('Publicar', 'button button-dark', () => changePublication(product, true)));
     }
-    const deleteButton = makeButton('Eliminar trabajo', 'button button-danger product-delete-trigger', () => openProductDeleteDialog(product, deleteButton));
+    const deleteButton = makeButton('Eliminar trabajo', 'button button-danger product-delete-trigger', () => deleteProduct(product));
     deleteButton.setAttribute('aria-label', `Eliminar trabajo ${product.name}, ID ${product.id}`);
     item.append(actions);
     const deleteRow = element('div', 'product-delete-row');
