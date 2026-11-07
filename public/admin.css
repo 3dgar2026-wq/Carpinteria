@@ -315,6 +315,19 @@
 .photo-assignment-panel { margin-top: .75rem; padding-top: .75rem; display: grid; gap: .65rem; border-top: 1px solid rgba(20,40,61,.14); }
 .photo-assignment-panel .field-label { margin: 0; }
 .photo-assignment-panel .button { justify-self: start; }
+.photo-product-options { max-height: 16rem; display: grid; gap: .4rem; overflow-y: auto; overscroll-behavior: contain; }
+.photo-product-option { min-width: 0; padding: .45rem; display: grid; grid-template-columns: auto 3.4rem minmax(0, 1fr); align-items: center; gap: .55rem; border: 1px solid rgba(20,40,61,.18); background: var(--color-white); cursor: pointer; }
+.photo-product-option:hover, .photo-product-option.is-selected { border-color: var(--copper-dark); background: var(--color-warm-parchment); }
+.photo-product-option:focus-within { outline: 2px solid var(--copper-dark); outline-offset: 1px; }
+.photo-product-option > input { width: 1rem; height: 1rem; margin: 0; accent-color: var(--copper-dark); }
+.photo-product-thumb { width: 3.4rem; height: 2.55rem; display: grid; place-items: center; object-fit: cover; background: var(--color-warm-parchment); }
+.photo-product-thumb-placeholder { padding: .2rem; color: var(--color-ink-stone); font-size: .58rem; line-height: 1.15; text-align: center; }
+.photo-product-summary { min-width: 0; display: grid; gap: .1rem; overflow-wrap: anywhere; }
+.photo-product-name { font-size: .78rem; line-height: 1.25; }
+.photo-product-meta { color: var(--color-ink-stone); font-size: .67rem; line-height: 1.25; }
+.photo-product-status { width: fit-content; margin-top: .12rem; padding: .08rem .32rem; border: 1px solid rgba(20,40,61,.18); color: var(--night); font-size: .62rem; font-weight: 650; line-height: 1.25; }
+.photo-product-status.is-published { border-color: rgba(20,40,61,.28); background: rgba(20,40,61,.06); }
+.photo-product-status.is-hidden { border-color: rgba(130,71,47,.3); background: rgba(130,71,47,.07); color: var(--copper-dark); }
 .photo-inbox-empty { grid-column: 1 / -1; margin: 0; padding: 1rem; border: 1px dashed var(--color-ink-stone); background: var(--color-white); }
 .photo-pagination { margin-top: 1rem; display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .admin-media-item { grid-template-columns: 4.5rem minmax(0, 1fr); align-items: start; }

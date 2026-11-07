@@ -1875,7 +1875,7 @@ async function loadPhotoInbox() {
       const actions = element('div', 'photo-pending-actions');
       const assignButton = makeButton('Asignar a un mueble', 'button button-outline', () => {
         assignmentPanel.hidden = !assignmentPanel.hidden;
-        if (!assignmentPanel.hidden) assignmentPanel.querySelector('select')?.focus();
+        if (!assignmentPanel.hidden) assignmentPanel.querySelector('input[type="radio"]')?.focus();
       });
       const deleteButton = makeButton('Eliminar', 'button button-text photo-delete-button', () => deletePendingPhoto(media, deleteButton));
       actions.append(assignButton, deleteButton);
@@ -1883,19 +1883,63 @@ async function loadPhotoInbox() {
       assignmentPanel.hidden = true;
       if (currentProducts === null) {
         assignmentPanel.append(element('p', 'field-help', 'No fue posible cargar los muebles. Actualiza el panel e inténtalo de nuevo.'));
+      } else if (currentProducts.length === 0) {
+        assignmentPanel.append(element('p', 'field-help', 'Todavía no hay trabajos. Puedes crear uno nuevo con esta fotografía.'));
       } else {
-        const productLabel = element('label', 'field-label', 'Mueble existente');
-        const productSelect = document.createElement('select');
-        productSelect.setAttribute('aria-label', `Elegir mueble para ${media.original_filename || 'la fotografía'}`);
-        productSelect.append(new Option('Selecciona un mueble', ''));
+        const productOptions = element('div', 'photo-product-options');
+        productOptions.setAttribute('role', 'radiogroup');
+        productOptions.setAttribute('aria-label', `Elegir trabajo para ${media.original_filename || 'la fotografía'}`);
+        let selectedProductId = '';
+        const preferredProductExists = currentProducts.some((product) => String(product.id) === preferredPhotoProductId);
         for (const product of currentProducts) {
-          productSelect.append(new Option(`${product.name} · ${product.is_published ? 'Publicado' : 'Borrador'}`, String(product.id)));
+          const id = String(product.id);
+          const photos = (product.media ?? []).filter((item) => item.kind === 'image');
+          const cover = photos.find((item) => item.isCover) ?? photos[0];
+          const published = Boolean(product.is_published);
+          const option = element('label', 'photo-product-option');
+          const radio = document.createElement('input');
+          radio.type = 'radio';
+          radio.name = `photo-assignment-${media.id}`;
+          radio.value = id;
+          radio.checked = preferredProductExists && id === preferredPhotoProductId;
+          radio.setAttribute('aria-label', `${product.name}, ID ${id}, ${photos.length} fotografías, ${published ? 'Publicado' : 'Oculto'}`);
+          if (radio.checked) {
+            selectedProductId = id;
+            option.classList.add('is-selected');
+          }
+          radio.addEventListener('change', () => {
+            selectedProductId = radio.value;
+            for (const candidate of productOptions.querySelectorAll('.photo-product-option')) {
+              candidate.classList.toggle('is-selected', candidate.querySelector('input')?.checked === true);
+            }
+            assignExisting.disabled = false;
+          });
+
+          const thumbnail = cover?.adminUrl
+            ? element('img', 'photo-product-thumb')
+            : element('span', 'photo-product-thumb photo-product-thumb-placeholder', 'Sin foto');
+          if (cover?.adminUrl) {
+            thumbnail.src = cover.adminUrl;
+            thumbnail.alt = '';
+            thumbnail.loading = 'lazy';
+            thumbnail.addEventListener('error', () => {
+              thumbnail.replaceWith(element('span', 'photo-product-thumb photo-product-thumb-placeholder', 'Foto no disponible'));
+            }, { once: true });
+          }
+
+          const summary = element('span', 'photo-product-summary');
+          summary.append(
+            element('strong', 'photo-product-name', product.name),
+            element('span', 'photo-product-meta', `ID: ${id}`),
+            element('span', 'photo-product-meta', `Fotografías asociadas: ${photos.length}`),
+            element('span', `photo-product-status ${published ? 'is-published' : 'is-hidden'}`, published ? 'Publicado' : 'Oculto'),
+          );
+          option.append(radio, thumbnail, summary);
+          productOptions.append(option);
         }
-        if ((currentProducts ?? []).some((product) => String(product.id) === preferredPhotoProductId)) productSelect.value = preferredPhotoProductId;
-        const assignExisting = makeButton('Confirmar asignación', 'button button-dark', () => assignPendingPhoto(media, productSelect.value, assignExisting));
-        assignExisting.disabled = currentProducts.length === 0;
-        productLabel.append(productSelect);
-        assignmentPanel.append(productLabel, assignExisting);
+        const assignExisting = makeButton('Confirmar asignación', 'button button-dark', () => assignPendingPhoto(media, selectedProductId, assignExisting));
+        assignExisting.disabled = !selectedProductId;
+        assignmentPanel.append(element('p', 'field-label', 'Selecciona el trabajo correspondiente'), productOptions, assignExisting);
         const createButton = makeButton('Crear mueble nuevo', 'button button-text', () => openWizardWithPendingPhoto(media));
         assignmentPanel.append(createButton);
       }
